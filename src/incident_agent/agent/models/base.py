@@ -1,0 +1,1 @@
+"""ModelClient protocol."""

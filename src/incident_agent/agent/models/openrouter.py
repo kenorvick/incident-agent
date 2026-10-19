@@ -1,0 +1,1 @@
+"""OpenRouter model client (httpx)."""

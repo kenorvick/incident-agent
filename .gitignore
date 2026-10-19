@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Secrets
+.env
+*.key
+*.pem
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.cache/
+.DS_Store
+
+# Raw telemetry captures (never committed)
+captures/
+
+# Agent step logs / transcripts from eval runs (local only)
+runs/
+
+# Local data
+*.duckdb
+*.duckdb.wal
+fixtures/**/*.parquet
+
+# Upstream demo clone (never vendored)
+infra/opentelemetry-demo/
