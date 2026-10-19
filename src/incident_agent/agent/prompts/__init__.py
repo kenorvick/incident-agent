@@ -10,3 +10,9 @@ _DIR = Path(__file__).parent
 def load_system_prompt() -> str:
     """The system prompt. Contains no per-run content; the alert goes in the first user message."""
     return (_DIR / "system.md").read_text(encoding="utf-8").strip()
+
+
+@cache
+def load_memory_prompt() -> str:
+    """The memory section, appended to the system prompt only when memory is enabled."""
+    return (_DIR / "memory.md").read_text(encoding="utf-8").strip()
