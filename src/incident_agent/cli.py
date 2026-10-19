@@ -24,6 +24,7 @@ def investigate(
     provider: Annotated[str | None, typer.Option(help="openrouter or anthropic.")] = None,
     model: Annotated[str | None, typer.Option(help="Model ID for the provider.")] = None,
     fixtures_dir: Annotated[Path | None, typer.Option(help="Fixtures directory.")] = None,
+    runs_dir: Annotated[Path, typer.Option(help="Where the step log is written.")] = Path("runs"),
 ) -> None:
     """Investigate an incident in a recorded scenario and print the report."""
     import anyio
@@ -45,7 +46,7 @@ def investigate(
 
     config = AgentConfig(**({"max_steps": max_steps} if max_steps else {}))
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_path = Path("runs") / "adhoc" / f"{stamp}-{scenario}.jsonl"
+    log_path = runs_dir / "adhoc" / f"{stamp}-{scenario}.jsonl"
     investigator = make_investigator(
         config,
         model_factory=lambda: get_model_client(provider, model),
@@ -110,6 +111,7 @@ def eval(
     ] = None,
     report: Annotated[bool, typer.Option(help="Append results to docs/eval-results.md.")] = True,
     fixtures_dir: Annotated[Path | None, typer.Option(help="Fixtures directory.")] = None,
+    runs_dir: Annotated[Path, typer.Option(help="Where run logs and summaries go.")] = Path("runs"),
 ) -> None:
     """Run the scenario eval suite over recorded fixtures and report the results."""
     import os
@@ -140,7 +142,7 @@ def eval(
         typer.echo(f"Model error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
     model_id = getattr(client.inner, "model", model)
-    baseline = load_eval_run(Path("runs") / compare_to) if compare_to else None
+    baseline = load_eval_run(runs_dir / compare_to) if compare_to else None
 
     ledger = SpendLedger()
     typer.echo(f"{len(specs)} scenarios x {runs} runs. {ledger.describe()}\n")
@@ -156,6 +158,7 @@ def eval(
             runs_per_scenario=runs,
             concurrency=concurrency,
             run_id=run_id,
+            runs_dir=runs_dir,
             config={"effort": os.environ.get("MODEL_EFFORT", "medium")},
             provider=provider or os.environ.get("MODEL_PROVIDER", "openrouter"),
             model_id=model_id,
@@ -169,7 +172,7 @@ def eval(
         typer.echo(f"{entry}\nAppended to docs/eval-results.md")
     else:
         typer.echo(render_entry(result, compare_to=baseline))
-    typer.echo(f"\nRun logs: runs/{result.run_id}/   {ledger.describe()}")
+    typer.echo(f"\nRun logs: {runs_dir / result.run_id}/   {ledger.describe()}")
 
 
 @app.command("serve-mcp")
