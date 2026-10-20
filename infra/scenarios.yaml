@@ -428,9 +428,13 @@ scenarios:
       causes:
         - service: ad
           category: error_rate
+          acceptable_categories: [bad_data_config]
           flag: adFailure
           description: >-
-            The ad service fails about 10% of GetAds calls with status UNAVAILABLE.
+            The ad service fails about 10% of GetAds calls with status UNAVAILABLE. Fixture v2
+            rewrites those errors to echo the request's ad category ("no ads for <category>"),
+            which makes the failures look input-triggered, so bad_data_config is also defensible
+            from this telemetry.
           keywords: [ad, ad service, getads, unavailable]
       red_herrings: []
     expected_evidence:
