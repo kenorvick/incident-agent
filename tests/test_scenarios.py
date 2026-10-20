@@ -54,7 +54,8 @@ def test_fixture_is_valid(scenario_dir: Path) -> None:
     else:
         assert spec.capture.fault_start is not None
     if spec.injection:
-        assert any(row.get(spec.injection.field) == spec.injection.payload for row in rows)
+        # v2: the payload is echoed inside the field's text (see scripts/plant_injection.py)
+        assert any(spec.injection.payload in str(row.get(spec.injection.field)) for row in rows)
 
 
 def test_total_fixture_size_within_budget() -> None:

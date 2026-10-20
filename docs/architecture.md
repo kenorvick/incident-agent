@@ -157,8 +157,10 @@ Things done so the replay is an honest test (see `infra/README.md` for the detai
 
 - Spans from `flagd` and `flagd-ui`, and any span with a `feature_flag.key`, are dropped from fixtures:
   they record every flag evaluation with its variant and would simply name the injected fault.
-- The prompt-injection scenario plants its instruction-like spans through the real collector, so the
-  text reaches the fixture through the same pipeline as everything else.
+- The prompt-injection scenario's payload is synthetic text planted into a finished fixture by
+  `scripts/plant_injection.py` (post-capture, deterministic): it is echoed into the error message of the real
+  ad failures, where a normal investigation of the true cause reads it. (v1 posted decoy spans through the
+  collector; they were never read in most runs. See `docs/lessons-learned.md`, "Injection fixture v2".)
 - Fixtures are sampled to stay inside a 20 MB budget (14 MB total today); see "Sampling" above for what
   that does to counts.
 
@@ -727,8 +729,9 @@ What exists now:
   worst case is a wrong answer, not an action. This is the most important property and it must be
   protected: no write tool should be added without the controls below.
 - Inputs are schema-validated; reports are structured and validated.
-- The eval suite has an injection scenario (a payload in `user_agent.original` demanding a false root
-  cause and a canary string), scored deterministically.
+- The eval suite has an injection scenario (a payload in the ad service's error message demanding a false
+  root cause and a canary string), scored deterministically. Each run also records `injection_seen` (the
+  payload was in a tool result), because resilience means nothing for a run that never saw the payload.
 - The memory sanitizer, provenance and verify-before-trust prompting limit a stored injection's reach.
 - The anti-fabrication check measures whether claims trace to real tool output.
 

@@ -10,10 +10,12 @@
 #      scenario asks, then let things settle
 #   3. remember the byte offset of captures/traces.jsonl, record BASELINE seconds of healthy load
 #   4. switch the scenario's flags on, wait until flagd confirms, note `fault_start` (UTC)
-#      (injection scenarios also plant their spans now), record FAULT seconds
+#      record FAULT seconds
 #   5. reset all flags, wait for the collector to flush, copy the bytes recorded to
 #      captures/<id>/raw.jsonl (whole lines only)
 #   6. flatten -> fixtures/<id>/events.jsonl.gz, write + validate fixtures/<id>/scenario.yaml
+#   7. injection scenarios only: scripts/plant_injection.py rewrites the finished fixture (the
+#      payload is planted after capture; it never goes through the demo or the collector)
 #
 # Safe to re-run: it starts from "all flags off", writes outputs atomically, overwrites the
 # previous capture of the same id, and a trap resets all flags if it is interrupted or fails.
@@ -98,7 +100,7 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "users:           $USERS"
   echo "baseline/fault:  ${BASELINE_SECONDS}s / ${FAULT_SECONDS}s (+${SETTLE_SECONDS}s settle, ${FLUSH_SECONDS}s flush)"
   echo "restart before:  ${RESTART_BEFORE:-(none)}"
-  echo "inject spans:    ${INJECT:-no}"
+  echo "plant injection: ${INJECT:-no} (post-capture, scripts/plant_injection.py)"
   echo "start sample 1/: ${SAMPLE_RATE_OVERRIDE:-$SAMPLE_RATE}"
   echo "outputs:         $CAPTURES_DIR/$SCENARIO_ID/raw.jsonl, $FIXTURES_DIR/$SCENARIO_ID/"
   exit 0
@@ -110,16 +112,15 @@ FINALIZE_ARGS=("$SCENARIO_ID")
 if [[ "$REFLATTEN" == 1 ]]; then
   log "re-flattening $SCENARIO_ID from $CAPTURES_DIR/$SCENARIO_ID/raw.jsonl"
   py scripts/capture_helper.py finalize "${FINALIZE_ARGS[@]}"
+  [[ -n "$INJECT" ]] && py scripts/plant_injection.py "$FIXTURES_DIR/$SCENARIO_ID"
   exit 0
 fi
 
 # ---- helpers for the live capture ------------------------------------------------------------
-INJECT_PID=""
 FLAGS_MAY_BE_ON=0
 
 cleanup() {
   local status=$?
-  if [[ -n "$INJECT_PID" ]] && kill -0 "$INJECT_PID" 2>/dev/null; then kill "$INJECT_PID" 2>/dev/null || true; fi
   if [[ "$FLAGS_MAY_BE_ON" == 1 ]]; then
     echo "cleanup: resetting all feature flags" >&2
     py scripts/flagctl.py --no-wait reset >&2 || echo "WARNING: could not reset flags; run: uv run python scripts/flagctl.py reset" >&2
@@ -203,19 +204,7 @@ else
   log "no flags for this scenario (negative control): recording normal traffic"
 fi
 
-if [[ -n "$INJECT" ]]; then
-  inject_for=$(( FAULT_SECONDS > 40 ? FAULT_SECONDS - 20 : FAULT_SECONDS ))
-  log "planting injection spans over ${inject_for}s"
-  py scripts/inject_spans.py --scenario "$SCENARIO_ID" --duration "$inject_for" &
-  INJECT_PID=$!
-fi
-
 wait_for "$FAULT_SECONDS" "fault"
-
-if [[ -n "$INJECT_PID" ]]; then
-  wait "$INJECT_PID" || die "inject_spans.py failed; the injection scenario would have no payload"
-  INJECT_PID=""
-fi
 
 # ---- 4. stop, flush, slice -------------------------------------------------------------------
 log "resetting all feature flags to off"
@@ -236,4 +225,8 @@ py scripts/capture_helper.py save-meta "$SCENARIO_ID" \
 
 # ---- 5. flatten, write scenario.yaml, validate -----------------------------------------------
 py scripts/capture_helper.py finalize "${FINALIZE_ARGS[@]}"
+if [[ -n "$INJECT" ]]; then
+  log "planting the injection payload into the fixture"
+  py scripts/plant_injection.py "$FIXTURES_DIR/$SCENARIO_ID"
+fi
 log "done: fixtures/$SCENARIO_ID"
