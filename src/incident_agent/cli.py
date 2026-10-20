@@ -9,6 +9,7 @@ import typer
 
 if TYPE_CHECKING:
     from incident_agent.agent.loop import AgentConfig
+    from incident_agent.agent.memory import MemoryConfig
     from incident_agent.agent.report import InvestigationResult
 
 app = typer.Typer(help="Investigate microservice incidents with telemetry-querying agents.")
@@ -37,6 +38,33 @@ MaxContextOption = Annotated[
 ]
 
 
+MemoryDirOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--memory-dir",
+        help="Turn memory on, with notes stored here (created on first write). "
+        "Default with --memory-seed: <runs-dir>/memory.",
+    ),
+]
+MemorySeedOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--memory-seed",
+        exists=True,
+        dir_okay=False,
+        help="Turn memory on and load these seed notes (YAML) into the store before each run.",
+    ),
+]
+MemoryPerRunOption = Annotated[
+    bool | None,
+    typer.Option(
+        "--memory-per-run/--no-memory-per-run",
+        help="Give each run a private copy of the memory store next to its log, so runs do not "
+        "affect each other. Default: on for eval, off for investigate.",
+    ),
+]
+
+
 def build_agent_config(
     max_steps: int | None, context_mode: ContextModeChoice, max_context_tokens: int | None
 ) -> "AgentConfig":
@@ -54,6 +82,55 @@ def build_agent_config(
         raise typer.Exit(code=2) from exc
 
 
+def build_memory_config(
+    memory_dir: Path | None,
+    memory_seed: Path | None,
+    per_run: bool | None,
+    *,
+    default_dir: Path,
+    default_per_run: bool,
+) -> "MemoryConfig | None":
+    """The memory config for the CLI flags, or None (memory off) when neither `--memory-dir` nor
+    `--memory-seed` is given. A bad flag combination or seed file exits with a usage error, before
+    any model call is made."""
+    if memory_dir is None and memory_seed is None:
+        if per_run is not None:
+            typer.echo("--memory-per-run needs --memory-dir or --memory-seed.", err=True)
+            raise typer.Exit(code=2)
+        return None
+
+    import tempfile
+
+    import yaml
+
+    from incident_agent.agent.memory import MemoryConfig, MemoryRefused, MemoryStore, seed_store
+
+    if memory_seed is not None:  # parse and sanitize it now rather than at the start of each run
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                seed_store(MemoryStore(Path(scratch)), memory_seed)
+        except (OSError, ValueError, yaml.YAMLError, MemoryRefused) as exc:
+            typer.echo(f"Bad --memory-seed {memory_seed}: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+    return MemoryConfig(
+        store_dir=memory_dir or default_dir,
+        seed_file=memory_seed,
+        per_run_copy=default_per_run if per_run is None else per_run,
+    )
+
+
+def memory_run_config(memory: "MemoryConfig | None") -> dict[str, object]:
+    """The memory settings to record with an eval run (empty when memory is off, so the recorded
+    config of a no-memory run is unchanged)."""
+    if memory is None:
+        return {}
+    return {
+        "memory_dir": str(memory.store_dir),
+        "memory_seed": str(memory.seed_file) if memory.seed_file else None,
+        "memory_per_run": memory.per_run_copy,
+    }
+
+
 @app.command()
 def investigate(
     alert: Annotated[
@@ -67,6 +144,9 @@ def investigate(
     model: Annotated[str | None, typer.Option(help="Model ID for the provider.")] = None,
     context_mode: ContextModeOption = ContextModeChoice.none,
     max_context_tokens: MaxContextOption = None,
+    memory_dir: MemoryDirOption = None,
+    memory_seed: MemorySeedOption = None,
+    memory_per_run: MemoryPerRunOption = None,
     fixtures_dir: Annotated[Path | None, typer.Option(help="Fixtures directory.")] = None,
     runs_dir: Annotated[Path, typer.Option(help="Where the step log is written.")] = Path("runs"),
 ) -> None:
@@ -88,12 +168,20 @@ def investigate(
         spec = spec.model_copy(update={"alert": alert})
 
     config = build_agent_config(max_steps, context_mode, max_context_tokens)
+    memory = build_memory_config(
+        memory_dir,
+        memory_seed,
+        memory_per_run,
+        default_dir=runs_dir / "memory",
+        default_per_run=False,
+    )
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = runs_dir / "adhoc" / f"{stamp}-{scenario}.jsonl"
     investigator = make_investigator(
         config,
         model_factory=lambda: get_model_client(provider, model),
         fixtures_dir=fixtures,
+        **({"memory": memory} if memory else {}),
     )
     typer.echo(f"Investigating {scenario}: {spec.alert}\n")
     try:
@@ -148,6 +236,9 @@ def eval(
     model: Annotated[str | None, typer.Option(help="Model ID for the provider.")] = None,
     context_mode: ContextModeOption = ContextModeChoice.none,
     max_context_tokens: MaxContextOption = None,
+    memory_dir: MemoryDirOption = None,
+    memory_seed: MemorySeedOption = None,
+    memory_per_run: MemoryPerRunOption = None,
     notes: Annotated[str, typer.Option(help="Free text recorded with the results.")] = "",
     run_id: Annotated[str | None, typer.Option(help="Run id (default: a timestamp).")] = None,
     resume: Annotated[bool, typer.Option(help="Continue an existing --run-id.")] = False,
@@ -180,6 +271,14 @@ def eval(
         typer.echo(f"No scenarios matched in {fixtures}.", err=True)
         raise typer.Exit(code=2)
 
+    memory = build_memory_config(
+        memory_dir,
+        memory_seed,
+        memory_per_run,
+        default_dir=runs_dir / "memory",
+        default_per_run=True,
+    )
+
     try:  # fail fast on a missing key or bad provider, before any run starts
         client = get_model_client(provider, model)
     except ModelError as exc:
@@ -198,6 +297,7 @@ def eval(
                 config,
                 model_factory=lambda: get_model_client(provider, model, ledger=ledger),
                 fixtures_dir=fixtures,
+                **({"memory": memory} if memory else {}),
             ),
             runs_per_scenario=runs,
             concurrency=concurrency,
@@ -207,6 +307,7 @@ def eval(
                 "effort": os.environ.get("MODEL_EFFORT", "medium"),
                 "context_mode": context_mode.value,
                 "max_context_tokens": max_context_tokens,
+                **memory_run_config(memory),
             },
             provider=provider or os.environ.get("MODEL_PROVIDER", "openrouter"),
             model_id=model_id,
