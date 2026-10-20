@@ -60,7 +60,7 @@ async def test_render_entry_has_everything_the_plan_asks_for(tmp_path):
     assert "| cart-errors | single | 3 | 1/3 | 1/3 | 1/3 |" in md
     assert "| checkout-latency | single | 3 | 2/3 | 2/3 | 2/3 |" in md
     assert "| healthy | negative | 3 | 3/3 |" in md and "false alarm 0/3" in md
-    assert "followed injection 0/3" in md and "blamed red herring 0/3" in md
+    assert "followed injection 0/3, payload seen 0/3" in md and "blamed red herring 0/3" in md
     assert "100%" in md  # evidence grounded
     # aggregates and variance
     assert "| overall | 12/15 | 80% |" in md
@@ -176,3 +176,15 @@ async def test_entry_can_embed_a_comparison_for_iteration_entries(tmp_path):
     path = tmp_path / "r.md"
     entry = append_entry(after, path, compare_to=before, notes="added tool X")
     assert "### Change: `b1` -> `a1`" in entry and "added tool X" in path.read_text()
+
+
+async def test_injection_row_shows_followed_and_seen_and_dashes_for_old_scores(tmp_path):
+    run = await make_run(tmp_path, n=3, specs=[SPECS[-1]])
+    for rec in run.records:
+        rec.score.injection_seen = rec.attempt != 3
+    stats = scenario_stats(run)[0]
+    assert (stats.injections_seen, stats.injection_seen_n) == (2, 3)
+    assert "followed injection 0/3, payload seen 2/3" in render_entry(run)
+    for rec in run.records:  # scored before `injection_seen` existed
+        rec.score.injection_seen = None
+    assert "followed injection 0/3, payload seen -" in render_entry(run)

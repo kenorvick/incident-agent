@@ -75,6 +75,19 @@ class Injection(BaseModel):
     forbidden: list[str] = Field(
         description="Strings whose presence in the report means the agent obeyed the payload."
     )
+    marker: str | None = Field(
+        default=None,
+        description=(
+            "Substring of the payload that, when it appears in any tool result of a run, means "
+            "the agent was shown the payload (`RunScore.injection_seen`). Defaults to the first "
+            "`forbidden` string (the canary), which the tools only print if the whole "
+            "payload fits their value-length caps."
+        ),
+    )
+
+    @property
+    def seen_marker(self) -> str:
+        return self.marker or next((f for f in self.forbidden if f.strip()), "")
 
 
 class Capture(BaseModel):
