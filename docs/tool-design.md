@@ -374,12 +374,18 @@ about 1.2k tokens summarised and far more raw, and the model can always follow a
 **Size is a budget.** Tool results are the biggest consumer of context and are re-read on every
 turn. Caps are in the schema (`limit <= 50`, `max_attributes <= 20`), in the code (series 40
 buckets x 6 groups, 3 examples, 4 error spans, 25 tree lines), and as a last resort in the server
-(12,000 characters). Tool definitions are re-sent every turn too, so schemas are slimmed: titles
-and null branches removed, single-use `$ref`s inlined, descriptions kept for what they teach.
-Measured on the captured scenarios the five definitions total about 3.6k approximate tokens
-(`run_query` 1.0k, `find_outliers` 1.1k, `compare_windows` 0.9k, `get_trace` 0.3k,
-`describe_dataset` 0.3k), the largest fixed cost; they could be trimmed further if cache-misses
-matter.
+(12,000 characters). Tool definitions are re-sent every turn too, so schemas are slimmed
+(`prepare_schema`): titles, null and structured defaults removed, single-use `$ref`s inlined, size
+limits (`maxLength`, `minItems`, ...) and `additionalProperties: false` dropped from what the model
+sees (the input models still enforce them at call time, with fixable error messages), and field
+descriptions kept short; descriptions are kept for what they teach. `submit_report`'s schema gets the
+same shrinking. Measured (`scripts` style: description plus compact JSON schema, characters / 4):
+the five definitions total about 2.7k approximate tokens (`run_query` 0.8k, `find_outliers` 0.8k,
+`compare_windows` 0.7k, `get_trace` 0.2k, `describe_dataset` 0.2k) and `submit_report` 0.8k, down
+from 3.6k and 0.9k before the Phase 6 trim; the first model call is about 7.2k real input tokens
+(it was 8.2k), of which roughly 6k are tool definitions. The rest is the JSON-schema skeleton of the
+filter and calculation objects, which cannot be trimmed without changing the tool interface.
+`compare_windows` was called in 1 of 113 recent runs but is about a fifth of the definitions.
 
 **Descriptions are prompts.** Each says when to use the tool, what comes back, and when not to
 ("do NOT group by trace_id ... use find_outliers"; "do not use it to explain WHY"), and shows an

@@ -55,21 +55,21 @@ NAME = "find_outliers"
 
 DESCRIPTION = """\
 BubbleUp: find which attributes distinguish a SELECTION of events (the bad ones) from a BASELINE \
-(by default, all other events in the window). Use it after run_query shows where the symptom is, \
-to find WHY: which attribute values are over-represented among slow or failing events. Returns the \
-top attributes ranked by score (0-1, higher = the selection differs more), each with its top \
-values as selection % vs baseline %; numeric fields show p50/p95/max for both sets; attributes \
-that mark exactly the selected events are listed first as "perfect separators"; plus example \
-selected events with trace_id (feed those to get_trace).
+(default: all other events in the window). Use it after run_query shows where the symptom is, to \
+find WHY. Returns attributes ranked by score (0-1, higher = the selection differs more), each \
+with its top values as selection % vs baseline %; numeric fields show p50/p95/max for both sets; \
+attributes that mark exactly the selected events come first as "perfect separators"; plus \
+example selected events with trace_id (feed those to get_trace).
 Selection examples: [{"field":"error","op":"=","value":true}]; slow requests: \
-[{"field":"service.name","op":"=","value":"checkout"},\
-{"field":"duration_ms","op":">","value":1000}]. \
+[{"field":"service.name","op":"=","value":"checkout"},{"field":"duration_ms","op":">","value":1000}]. \
 Scope the selection to one service when you can: mixing services dilutes the signal. High-score \
 high-cardinality attributes (a user, tenant, product or version id) are often the answer; \
-cross-check with a run_query grouped by that attribute. To compare the same events before vs after \
-a time instead, give `baseline_start`/`baseline_end` (the selection window is then `start`/`end`).
-Do not use it to get counts or percentiles (run_query) or to read one request (get_trace). If \
-nothing scores above ~0.1 the selection looks like normal background: say so rather than guessing."""  # noqa: E501
+cross-check with a run_query grouped by that attribute. To compare the same events before vs \
+after a time instead, give `baseline_start`/`baseline_end` (the selection window is then \
+`start`/`end`).
+Do not use it for counts or percentiles (run_query) or to read one request (get_trace). If \
+nothing scores above ~0.1 the selection looks like normal background: say so rather than \
+guessing."""  # noqa: E501
 
 MIN_SCORE = 0.1
 # The "where" part of a selection; the rest of its conditions describe the symptom.
@@ -102,18 +102,11 @@ class FindOutliersInput(WindowInput):
     baseline: list[FilterInput] | None = Field(
         default=None,
         max_length=6,
-        description=(
-            "Optional conditions for the comparison set. Default: every other event in the "
-            "window. Use it to compare against a specific group, e.g. the same operation on a "
-            "healthy service."
-        ),
+        description="Comparison-set conditions. Default: every other event in the window.",
     )
     baseline_start: str | None = Field(
         default=None,
-        description=(
-            "Compare the selection against the SAME conditions in an earlier window starting "
-            "here (ISO-8601 UTC or HH:MM:SS). Use with `baseline_end`."
-        ),
+        description="Compare with the SAME selection in `baseline_start`..`baseline_end`.",
     )
     baseline_end: str | None = Field(default=None, description="End (exclusive) of that window.")
     fields: list[FieldName] | None = Field(
@@ -123,11 +116,9 @@ class FindOutliersInput(WindowInput):
         description="Only compare these fields (default: all well-populated, non-id fields).",
     )
     max_attributes: int = Field(
-        default=8, ge=1, le=20, description="How many ranked attributes to return (1-20)."
+        default=8, ge=1, le=20, description="Ranked attributes to return (1-20)."
     )
-    max_values: int = Field(
-        default=3, ge=1, le=8, description="Top values shown per attribute (1-8)."
-    )
+    max_values: int = Field(default=3, ge=1, le=8, description="Top values per attribute (1-8).")
 
 
 def _pct_n(frac: float, n: int) -> str:

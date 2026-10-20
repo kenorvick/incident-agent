@@ -84,17 +84,16 @@ _CALC_ALIASES = {
 
 
 class FilterInput(Filter):
-    """One condition on an event field."""
-
+    # No docstring: it would be sent to the model on every turn as a schema description.
     model_config = ConfigDict(extra="forbid")
 
-    field: FieldName = Field(description="Field name, exactly as listed by describe_dataset.")
+    field: FieldName = Field(description="Field name as listed by describe_dataset.")
     op: FilterOp = Field(
         default=FilterOp.EQ,
         description=(
             "`in`/`not_in` take a list; `exists`/`does_not_exist` no value; `contains` is a "
-            "case-insensitive substring match (strings); `>`..`<=` need a numeric/timestamp "
-            "field; `!=`/`not_in` skip events missing the field."
+            "case-insensitive substring; `>`..`<=` need a numeric/timestamp field; `!=`/`not_in` "
+            "skip events missing the field."
         ),
     )
     value: Annotated[
@@ -105,7 +104,7 @@ class FilterInput(Filter):
                 "items": {"type": ["string", "number", "boolean"]},
             }
         ),
-    ] = Field(default=None, description="Value to compare with (a list for `in`/`not_in`).")
+    ] = Field(default=None, description="Value (a list for `in`/`not_in`).")
 
     @field_validator("op", mode="before")
     @classmethod
@@ -117,21 +116,15 @@ class FilterInput(Filter):
 
 
 class CalcInput(Calculation):
-    """One aggregate calculation."""
-
+    # No docstring: it would be sent to the model on every turn as a schema description.
     model_config = ConfigDict(extra="forbid")
 
-    op: Calc = Field(
-        description=(
-            "COUNT, COUNT_DISTINCT, AVG, SUM, MIN, MAX, P50, P90, P95, P99, or ERROR_RATE "
-            "(share of events with error=true)."
-        )
-    )
+    op: Calc = Field(description="ERROR_RATE is the share of events with error=true.")
     field: FieldName | None = Field(
         default=None,
         description=(
-            "Required for every op except COUNT and ERROR_RATE (which take none). Numeric field "
-            "for AVG/SUM/MIN/MAX/P50-P99 (usually duration_ms); any field for COUNT_DISTINCT."
+            "Not for COUNT/ERROR_RATE; required otherwise. Numeric for AVG/SUM/MIN/MAX/P50-P99 "
+            "(usually duration_ms); any field for COUNT_DISTINCT."
         ),
     )
 
@@ -150,20 +143,13 @@ class WindowInput(ToolInput):
     last_seconds: int | None = Field(
         default=None,
         ge=1,
-        description=(
-            "Only the last N seconds of data, counted back from the dataset's newest event "
-            "(not wall-clock time). Do not combine with start/end."
-        ),
+        description="Only the last N seconds, counted from the newest event. Not with start/end.",
     )
     start: str | None = Field(
         default=None,
-        description=(
-            "Window start (inclusive): ISO-8601 UTC like 2026-10-19T21:05:00Z, or HH:MM:SS."
-        ),
+        description="Window start (inclusive): ISO-8601 UTC (2026-10-19T21:05:00Z) or HH:MM:SS.",
     )
-    end: str | None = Field(
-        default=None, description="Window end (exclusive): same formats as `start`."
-    )
+    end: str | None = Field(default=None, description="Window end (exclusive), same formats.")
 
     def time_window(self, schema: DatasetSchema) -> TimeWindow | None:
         if self.last_seconds is None and self.start is None and self.end is None:

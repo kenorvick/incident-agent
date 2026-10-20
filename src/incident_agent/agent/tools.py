@@ -154,7 +154,7 @@ class SubmitReportTool:
                 "exactly. Invalid reports are rejected with the reasons; fix them and call it "
                 "again."
             ),
-            input_schema=InvestigationReport.model_json_schema(),
+            input_schema=_report_schema(),
         )
 
     @property
@@ -239,6 +239,14 @@ class SubmitReportTool:
             f"cannot find, and call {SUBMIT_REPORT} again ({left} more rejection(s) before "
             "the report is accepted as it is)."
         )
+
+
+def _report_schema() -> dict[str, Any]:
+    """The report's JSON schema as sent to the model: the same shrinking the MCP tools get (no
+    titles, single-use `$ref`s inlined), since tool definitions are re-sent on every turn."""
+    from incident_agent.mcp_server.server import prepare_schema
+
+    return prepare_schema(InvestigationReport.model_json_schema())
 
 
 def _validation_message(exc: ValidationError) -> str:

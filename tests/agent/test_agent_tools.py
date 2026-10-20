@@ -22,7 +22,10 @@ pytestmark = pytest.mark.anyio
 def test_submit_report_schema_is_the_report_schema():
     tool = SubmitReportTool()
     assert tool.spec.name == "submit_report"
-    assert tool.spec.input_schema == InvestigationReport.model_json_schema()
+    schema = tool.spec.input_schema
+    assert set(schema["properties"]) == set(InvestigationReport.model_fields)
+    assert schema["required"] == ["verdict", "confidence"]
+    assert "title" not in schema and "$defs" not in schema  # shrunk like the MCP tool schemas
     assert "tool call" in tool.spec.description
 
 

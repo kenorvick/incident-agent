@@ -44,10 +44,17 @@ ANNOTATIONS = ToolAnnotations(
 # --------------------------------------------------------------------------- schema shaping
 
 
+# Constraints that cost tokens on every turn and teach the model nothing the descriptions and the
+# call-time error messages do not: sizes of strings and lists, "no extra properties". They are
+# still enforced by the Pydantic input models when a call is made.
+_PUBLISH_DROP = {"maxLength", "minLength", "maxItems", "minItems"}
+
+
 def prepare_schema(schema: dict[str, Any], field_names: list[str] | None = None) -> dict[str, Any]:
-    """Shrink a Pydantic JSON schema for the model: drop titles and null defaults, collapse
-    `anyOf` with null, inline `$ref`s used once (shared ones stay in `$defs`), and resolve the
-    field-name marker (with `field_names`, every field-name input gets `enum: [...]`)."""
+    """Shrink a Pydantic JSON schema for the model: drop titles, null and structured defaults,
+    size limits and `additionalProperties: false`, collapse `anyOf` with null, inline `$ref`s used
+    once (shared ones stay in `$defs`), and resolve the field-name marker (with `field_names`,
+    every field-name input gets `enum: [...]`)."""
     defs: dict[str, Any] = schema.get("$defs", {})
     uses: dict[str, int] = {}
 
@@ -76,7 +83,11 @@ def prepare_schema(schema: dict[str, Any], field_names: list[str] | None = None)
             node = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
         out: dict[str, Any] = {}
         for key, value in node.items():
-            if key in ("title", "$defs") or (key == "default" and value is None):
+            if key in ("title", "$defs") or key in _PUBLISH_DROP:
+                continue
+            if key == "default" and (value is None or isinstance(value, list | dict)):
+                continue
+            if key == "additionalProperties" and value is False:
                 continue
             if key == "properties":
                 out[key] = {name: walk(sub) for name, sub in value.items()}

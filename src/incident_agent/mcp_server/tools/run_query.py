@@ -36,18 +36,18 @@ from incident_agent.mcp_server.tools._common import (
 NAME = "run_query"
 
 DESCRIPTION = """\
-Aggregate events: count, avg, p50/p90/p95/p99, max, error rate or count_distinct, grouped by up \
-to 2 fields, with filters, over a time window, optionally as a coarse time series. Use it to size \
-and locate a symptom ("p95 latency and error rate by service.name", "count of errors by \
-http.route", "error_rate over time for checkout"). Returns the top `limit` groups (default 10, max \
-50) with `total_groups` and a truncated note.
-Tips: group by LOW-cardinality fields (service.name, name, http.route, status_code). To filter to \
-failures use filters=[{"field":"error","op":"=","value":true}]. For latency use duration_ms with \
-P95/P99 (averages hide outliers). For a time series set `granularity_seconds` (one calculation, \
-at most 40 buckets, at most 6 groups).
-Do NOT group by trace_id, span_id or user/cart/order ids: that returns one row per event. To find \
-which attributes explain slow or failing events use find_outliers; to inspect one request use \
-get_trace."""
+Aggregate events: count, avg, p50-p99, max, error rate or count_distinct, grouped by up to 2 \
+fields, with filters and a time window, optionally as a coarse time series. Use it to size and \
+locate a symptom ("p95 latency and error rate by service.name", "errors by http.route", \
+"error_rate over time for checkout"). Returns the top `limit` groups with `total_groups` and a \
+truncated note.
+Tips: group by LOW-cardinality fields (service.name, name, http.route, status_code). Failures: \
+filters=[{"field":"error","op":"=","value":true}]. Latency: duration_ms with P95/P99 (averages \
+hide outliers). Time series: set `granularity_seconds` (one calculation, at most 40 buckets, at \
+most 6 groups).
+Do NOT group by trace_id, span_id or user/cart/order ids: that returns one row per event. To \
+find which attributes explain slow or failing events use find_outliers; to inspect one request \
+use get_trace."""
 
 MAX_SERIES_BUCKETS = 40
 MAX_SERIES_GROUPS = 6
@@ -58,30 +58,30 @@ class RunQueryInput(WindowInput):
         default_factory=lambda: [CalcInput(op=Calc.COUNT)],
         min_length=1,
         max_length=4,
-        description="What to compute (default COUNT). Up to 4; exactly 1 with granularity_seconds.",
+        description="What to compute (default COUNT); up to 4, exactly 1 with granularity_seconds.",
     )
     group_by: list[FieldName] = Field(
         default_factory=list,
         max_length=2,
-        description="Up to 2 fields to group by. Events missing a group-by field are left out.",
+        description="Up to 2 fields. Events missing one are left out.",
     )
     filters: list[FilterInput] = Field(
-        default_factory=list, max_length=8, description="Conditions combined with AND."
+        default_factory=list, max_length=8, description="Conditions, ANDed."
     )
     order_by: str | None = Field(
         default=None,
         max_length=100,
         description=(
-            "Sort groups by a calculation key such as `count`, `p95(duration_ms)`, "
-            "`error_rate`, or by a group_by field. Default: the first calculation."
+            "Sort by a calculation key (`count`, `p95(duration_ms)`, `error_rate`) or a group_by "
+            "field. Default: the first calculation."
         ),
     )
-    ascending: bool = Field(default=False, description="Sort ascending instead of descending.")
-    limit: int = Field(default=10, ge=1, le=50, description="Max groups to return (1-50).")
+    ascending: bool = Field(default=False, description="Sort ascending.")
+    limit: int = Field(default=10, ge=1, le=50, description="Max groups (1-50).")
     granularity_seconds: int | None = Field(
         default=None,
         ge=1,
-        description="Return a time series with buckets of this many seconds (UTC, zero-filled).",
+        description="Time series with buckets of this many seconds (UTC, zero-filled).",
     )
 
 

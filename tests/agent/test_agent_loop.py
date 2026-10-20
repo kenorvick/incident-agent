@@ -344,30 +344,34 @@ async def test_every_result_starts_with_a_sequential_ref_in_call_order(tmp_path)
     assert events[1]["is_error"] and events[1]["content"].startswith("[ref c2]\nUnknown tool")
 
 
-def test_evidence_schema_tells_the_model_to_cite_the_ref():
-    from incident_agent.agent.report import InvestigationReport
+def _sent_schema() -> dict:
+    """The submit_report input schema as the model receives it."""
+    from incident_agent.agent.tools import SubmitReportTool
 
-    schema = InvestigationReport.model_json_schema()
-    text = schema["$defs"]["Evidence"]["properties"]["tool_call_id"]["description"]
+    return SubmitReportTool().spec.input_schema
+
+
+def _evidence_props() -> dict:
+    return _sent_schema()["properties"]["evidence"]["items"]["properties"]
+
+
+def test_evidence_schema_tells_the_model_to_cite_the_ref():
+    text = _evidence_props()["tool_call_id"]["description"]
     assert "[ref cN]" in text and "c3" in text
 
 
 def test_category_definitions_are_in_the_submit_report_schema():
     from incident_agent.agent.report import CATEGORY_DEFINITIONS, CauseCategory
-    from incident_agent.agent.tools import SubmitReportTool
 
     assert set(CATEGORY_DEFINITIONS) == set(CauseCategory)
-    schema = SubmitReportTool().spec.input_schema
-    text = schema["$defs"]["SuspectedCause"]["properties"]["category"]["description"]
+    cause = _sent_schema()["properties"]["causes"]["items"]["properties"]
+    text = cause["category"]["description"]
     for category, definition in CATEGORY_DEFINITIONS.items():
         assert f"- {category.value}: {definition}" in text
 
 
 def test_cited_values_guidance_asks_for_one_verbatim_value_each():
-    from incident_agent.agent.report import InvestigationReport
-
-    props = InvestigationReport.model_json_schema()["$defs"]["Evidence"]["properties"]
-    text = props["cited_values"]["description"]
+    text = _evidence_props()["cited_values"]["description"]
     assert "ONE value" in text and "Good:" in text and "Bad:" in text
     assert "single value" in load_system_prompt()
 

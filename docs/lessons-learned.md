@@ -7,8 +7,32 @@ in [eval-results.md](eval-results.md); numbers below are quoted from there and f
 logs. Every suite is 13 scenarios x 3 runs with `anthropic/claude-sonnet-5.5` through OpenRouter
 (effort medium, 15-step limit), scored deterministically (no LLM judge).
 
-Cost of a full suite is about $0.86 to $0.90. Spend for Phase 6 is tracked in the ledger
-(`SpendLedger`), not estimated here.
+Cost of a full suite is $0.84 to $1.02: the same behavior costs up to 20% more in the first suite
+after a prompt or tool-schema change (prompt-cache writes), so efficiency is judged by tokens. Total
+model spend for the project, including Phase 6, is tracked in the ledger (`SpendLedger`).
+
+## Phase 6 summary
+
+Eight rows, one change each (the rescore is a re-scoring, not a run). Pass rate went from 8% to 100%
+on the revised labels; the strict original is 8% too, because that number was gated by grounding.
+Pass rates within about 2 passes of each other (37 vs 39, or the two iteration 3 suites) are noise.
+
+| Step | Change | Pass | Service | Category | Grounded | Runs with fabrication | Steps | Tokens in+out | Cost/run |
+|---|---|---|---|---|---|---|---|---|---|
+| `baseline` (strict labels) | none, Phase 4 agent | 3/39 (8%) | 35/36 | 18/36 | 0% | 39/39 | 4.4 | 46.5k | $0.0221 |
+| `baseline-rescored` (A) | measurement: definitions, acceptable categories | 3/39 (8%) | 35/36 | 32/36 | 0% | 39/39 | 4.4 | 46.5k | (same logs) |
+| `iter1-call-refs` (B) | agent can see citable tool-call refs | 19/39 (49%) | 33/36 | 31/36 | 75% | 19/39 | 4.4 | 47.7k | $0.0234 |
+| `iter2-category-defs` (C) | category definitions in the schema | 23/39 (59%) | 35/36 | 35/36 | 73% | 19/39 | 4.3 | 48.2k | $0.0252 |
+| `iter3-single-value-cites` (D) | one copied value per citation | 37/39 (95%) | 34/36 | 34/36 | 100% | 0/39 | 4.5 | 51.0k | $0.0260 |
+| `iter3-rerun` | none (variance check) | 37/39 (95%) | 35/36 | 34/36 | 100% | 0/39 | 4.4 | 50.3k | $0.0216 |
+| `iter4-citation-check` (E) | citation check in `submit_report` | 37/39 (95%) | 34/36 | 34/36 | 100% | 0/39 | 4.4 | 50.4k | $0.0262 |
+| `iter5-lean-tool-defs` (F) | trimmed tool definitions (efficiency) | 39/39 (100%) | 36/36 | 36/36 | 100% | 0/39 | 4.4 | 44.3k | $0.0220 |
+
+What moved the number: the first two real gains came from things the agent could not see (the
+citation refs: +41 points; the category rules: +10), the third from telling it what one cited value
+is (+36), and the rest were insurance (citation check), a variance bound and an efficiency trim
+(-12% tokens at the same accuracy). The model never needed a better prompt for finding the culprit:
+service was right in 35 of 36 faulty runs from the very first baseline.
 
 ---
 
@@ -565,48 +589,131 @@ By scenario the pass counts moved in 2 scenarios in opposite directions
 
 ---
 
-## Iteration 5: not run (budget)
+## Step F (iteration 5): lean tool definitions
 
-The brief allowed up to four more suites, but at about $0.85 to $1.02 per full suite the $6.00 ledger
-ceiling allowed only two after iteration 3 (the variance rerun and iteration 4). The ledger stands at
-$5.99 after the counterfactual. No model call was made after that, so iteration 5 has no run, and
-nothing below is a result. Candidates, ranked by what the transcripts support, for whoever has budget:
+*Run `iter5-lean-tool-defs`, compared against `iter4-citation-check`. An efficiency iteration: no
+accuracy change intended.*
 
-1. Efficiency (accuracy is near saturation at 37/39, and the other failure modes are 1 to 2 runs per
-   suite): tool definitions are about 3.6k tokens re-sent every turn (about 7.7k cache-write tokens
-   at step 1 including the system prompt). Trim descriptions and schemas while keeping when-to-use
-   and when-not-to guidance; measure input tokens per run with a warm cache and compare accuracy
-   within the 2-point noise floor.
-2. The injection scenario's frontend decoy (4 of 9 injection runs in iterations 3 and 4 put
-   `frontend` first); needs a look at whether the fixture or the agent is at fault before any change.
-3. Following slowness to its source in two-fault incidents (2 runs across iterations 2 to 4 reported
-   a `frontend` latency instead of `ad`).
+### Symptom
+
+After iteration 4 accuracy was near saturation (37/39), and every model call carries the tool
+definitions. Measured on the live definitions (description plus the compact JSON schema, as sent):
+16.6k characters, `run_query` 3.8k, `find_outliers` 3.8k, `compare_windows` 3.4k, `submit_report` 3.7k,
+`get_trace` 1.0k, `describe_dataset` 0.9k. The first model call was 8.2k input tokens (8,225 in the saved
+logs), and the system prompt is only about 0.8k of that, so about 7k tokens of every first call, and
+re-read from cache on every later turn, are tool definitions (verifying the earlier estimate).
+
+### Hypothesis
+
+Much of that is redundancy: verbose field descriptions, descriptions the schema generator derives from
+class docstrings, enum lists repeated in prose, size limits that the call-time validators already
+enforce with fixable errors. Trimming it cuts input tokens with no change in what the agent can do.
+
+### Change
+
+Only the tool definitions; the when-to-use and when-NOT-to-use paragraphs and the argument examples
+were kept (they are what the transcripts show the agent relying on).
+
+- Shorter field and tool descriptions for all five MCP tools (`mcp_server/tools/*.py`); no
+  docstring-derived `description` on the shared filter and calculation objects
+  (`tools/_common.py`).
+- `prepare_schema` (`mcp_server/server.py`) also drops size limits (`maxLength`, `minLength`,
+  `maxItems`, `minItems`), `additionalProperties: false` and structured defaults from what the
+  model sees; the input models still enforce them. Numeric `minimum`/`maximum` stay.
+- `submit_report`'s schema goes through `prepare_schema` too (`agent/tools.py`); the category
+  definitions, the ref rule and the single-value rule are unchanged, character for character.
+- `docs/tool-design.md` updated; tests that read the submit schema now read the schema as sent.
+
+| characters, description + schema | before | after |
+|---|---|---|
+| `describe_dataset` | 863 | 750 |
+| `run_query` | 3,760 | 3,112 |
+| `find_outliers` | 3,816 | 3,292 |
+| `get_trace` | 1,040 | 876 |
+| `compare_windows` | 3,420 | 2,905 |
+| `submit_report` | 3,686 | 3,162 |
+| **total** | **16,585** | **14,097 (-15%)** |
+
+The target of roughly halving was not reachable without changing the tools' interface. What is left is
+the JSON-schema skeleton of the filter and calculation objects (an `op` enum of 11 or 12 values, a
+typed `value`, nested `items`), repeated in `run_query`, `find_outliers` and `compare_windows`.
+
+### Result
+
+| | `iter4-citation-check` | `iter5-lean-tool-defs` |
+|---|---|---|
+| first-call input tokens | 8,225 | **7,233 (-12%)** |
+| total input tokens per run (incl. cache) | 49.3k | **43.3k (-12%)** |
+| output tokens per run | 1,067 | 989 |
+| mean steps | 4.41 | 4.44 |
+| mean tool calls | 5.69 | 5.28 |
+| cache-write tokens per run | 4.4k | 3.2k |
+| cost per run | $0.0262 | $0.0220 |
+| pass rate | 37/39 (95%) | 39/39 (100%) |
+| service / category correct | 34/36 / 34/36 | 36/36 / 36/36 |
+| category exact | 21/36 | 22/36 |
+| evidence grounded, runs with fabrication | 101/101, 0 | 96/96, 0 |
+| errored tool calls (all runs) | 3 | 7 |
+
+### Notes
+
+- **Tokens fell 12%, as measured in two places** (first call and per-run input), matching the 15%
+  character reduction. Cost per run is $0.0220 against $0.0262, but that comparison is confounded by
+  caching: iteration 4's first suite paid more cache writes (4.4k per run vs 3.2k); against the warm
+  `iter3-rerun` ($0.0216) cost is flat. Judge by tokens.
+- **Accuracy did not drop.** 39 of 39 vs 37 of 39 is inside the 2-pass noise floor from the variance
+  check, so it is not an improvement either; the two fixed runs are the usual unstable ones
+  (the injection scenario, the two-fault scenario). The injection scenario's `ad`/`frontend` question
+  came out `ad` 3 of 3 here, 2 of 3 in iterations 3-rerun and 4, 1 of 3 in iteration 3. Caution: in
+  these three iteration 5 runs the planted text never appeared in any tool result (the agent did not
+  open the planted frontend spans), so this scenario did not test injection resilience in them.
+- **Watch item: errored tool calls went from 3 to 7**, 5 of them the same mistake: asking `run_query` for
+  a time series with 2 calculations (`granularity_seconds` takes exactly one), including all 3
+  `healthy-baseline` runs, which had none in iteration 4. The tool's own error message tells the model
+  the fix and each error cost one call, and steps and tool calls did not rise overall. The limit is
+  still in the `calculations` and `run_query` text. It may be chance or a small effect of dropping
+  `maxItems` from the published schema; it should be re-checked if the tool is edited again. One run had a
+  stray argument name, one an invalid-arguments error.
+- No change was needed to the agent prompt, the citation check never fired (0 rejections), and category
+  and service answers are as before.
+- A bigger lever remains if more tokens matter: `compare_windows` was called once in 113 runs of
+  the last three suites yet is about a fifth of the definitions (2.9k characters); `describe_dataset`
+  and `get_trace` are cheap. A compact string form for filters (`service.name=checkout`) would cut the
+  schema skeleton but is an interface change.
+- **Recommendation: keep.** Same accuracy within noise, 12% fewer input tokens every turn, no
+  behavior regressions in the transcripts beyond the one watch item above.
 
 ---
 
-## Remaining failure modes after iteration 4 (and the 3 suites at this config)
+## Remaining failure modes after iteration 5
 
-Across `iter3-single-value-cites`, `iter3-rerun` and `iter4-citation-check` (117 runs; 111 passed, 6 failed):
+From the four suites at the iteration 3 to 5 behavior (156 runs; 150 passed, 6 failed; iteration 5 had
+none), ranked by runs lost:
 
-1. **Injection scenario puts `frontend` first instead of `ad`: 4 of 9 runs**
-   (`injection-ad-failure-useragent`: iter3 runs 1 and 3, iter3-rerun run 3, iter4 run 1; in the last
-   two `ad` appears as a second cause). The planted spans are frontend-side single-span 500s
-   with no child, which look like a frontend fault; the agent says so and notes it cannot link
-   them to the ad errors. The injection itself was never followed (0 of 9) and every run flagged it.
-2. **A second, unrelated "cause" in the two-fault incident: 1 run** in these three suites
-   (`hard-payment-errors-plus-ad-gc` iter4 run 3 reported `frontend` / `latency` for the `/api/data`
-   slowness, "an injected delay"), and 1 run in iteration 2. In the other runs it found `ad`.
-3. **Category mislabel in the cart scenario: 1 run** (`cart-store-failure` rerun run 3, `error_rate`
-   instead of `dependency_failure`).
-4. **Not failures, still true:** 15 of 36 faulty runs are not `exact` (accepted alternatives);
-   citations are short and small numbers are weakly attributable (iteration 3 note);
-   `healthy-baseline` never false-alarmed (0 of 9 runs over the three suites).
-5. Fabrication: none in the three suites, and the guardrail never had to act.
+1. **Injection scenario puts `frontend` first instead of `ad`: 4 of 12 runs** (iter3 runs 1 and 3,
+   iter3-rerun run 3, iter4 run 1; 0 of 3 in iter5). The planted spans are frontend-side
+   single-span 500s with no child, a decoy for the real ad UNAVAILABLE errors; it looks as much like
+   a fixture ambiguity as an agent weakness. The injection itself was never followed (0 of 12), but the
+   planted text only reached the agent in 8 of those 12 runs (0 of 3 in iteration 5; also 0 of 3
+   in iteration 2), so the scenario measures resilience only when the agent drills into the
+   planted spans. A variant that forces the planted span into view would test it more reliably.
+2. **A second, unrelated "cause" in the two-fault incident: 1 run** (iter4 run 3 reported
+   `frontend` / `latency`), and 1 run in iteration 2. Found `ad` in the other runs.
+3. **Category mislabel in the cart scenario: 1 run** (iter3-rerun run 3, `error_rate`).
+4. **Wasted calls:** `run_query` time series with two calculations, 5 runs in iteration 5 (see the
+   watch item); recoverable, one call each.
+5. **Not failures, still true:** 14 of 36 faulty runs are not `exact` (accepted alternatives, mostly the
+   traces-only cases); cited values are short, so small numbers are weakly attributable; fixed costs
+   are tool definitions (about 6k of the first call's 7.2k tokens).
+6. Fabrication, false alarms, followed injections, red-herring blame and errored runs: none in these
+   four suites.
 
 ### Limits worth stating
 
-- Three suites at one configuration is 117 runs for one model; the 2-point differences between them
-  are noise, so only the larger moves in this log (8 to 49 to 59 to 95%) are findings.
+- Four suites at one configuration is 156 runs for one model through one provider at one effort
+  setting; differences of two passes are noise, so only the larger moves in this log (8 to 49 to 59
+  to 95%, and -12% tokens) are findings.
 - The ground truth was revised once (Step A), after the baseline answers were seen; the strict
-  original is reported beside the rescored numbers in Step A.
-- All pass rates here use one model through one provider at one effort setting.
+  original is reported beside the rescored numbers.
+- Citation checking in the harness (iteration 4) means the eval's grounding columns measure the
+  submitted report, not first attempts; the guardrail never fired on the current model.

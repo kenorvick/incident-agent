@@ -24,13 +24,13 @@ from incident_agent.mcp_server.tools._common import (
 NAME = "describe_dataset"
 
 DESCRIPTION = """\
-Orientation: what telemetry exists. Returns the services, event count, time range and the most \
-useful fields (type, number of distinct values, % of events that have the field, and the values of \
-small enums). Call this FIRST in an investigation, and again whenever you need an exact field name \
-(use `name_contains` to search, e.g. "http", "user", "payment").
-Each event is one span with many attributes; any field can be filtered or grouped. Do not use this \
-to analyse a symptom: use run_query for numbers, find_outliers for what differs, get_trace for one \
-request."""
+Orientation: services, event count, time range and the most useful fields (type, distinct \
+values, % of events that have it, values of small enums). Call this FIRST in an investigation, \
+and again whenever you need an exact field name (`name_contains` searches, e.g. "http", \
+"payment").
+Each event is one span with many attributes; any field can be filtered or grouped. Do not use \
+this to analyse a symptom: use run_query for numbers, find_outliers for what differs, get_trace \
+for one request."""
 
 # Shown first, in this order, when present. The rest follow by how many events have them.
 _KEY_FIELDS = [
@@ -47,10 +47,10 @@ class DescribeDatasetInput(ToolInput):
     name_contains: str | None = Field(
         default=None,
         max_length=100,
-        description="Only list fields whose name contains this text (case-insensitive).",
+        description="Only fields whose name contains this (case-insensitive).",
     )
     max_fields: int = Field(
-        default=40, ge=5, le=200, description="How many fields to list (default 40, max 200)."
+        default=40, ge=5, le=200, description="How many fields to list (5-200)."
     )
 
 

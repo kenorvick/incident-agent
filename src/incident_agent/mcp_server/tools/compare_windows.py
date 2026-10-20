@@ -36,15 +36,14 @@ from incident_agent.mcp_server.tools._common import (
 NAME = "compare_windows"
 
 DESCRIPTION = """\
-Compare a metric BEFORE vs AFTER a moment (a deploy, a flag change, the time an alert fired), \
-optionally per value of one field, with absolute and relative changes. Answers "what changed at \
-T?". Give `at` (a timestamp; the windows are the equal-length stretches just before and just \
-after it) or two explicit windows `before` and `after`. Default metrics: error_rate and \
-p95(duration_ms) (event counts n are always shown). With `group_by` the groups are ranked by \
-how much the FIRST metric changed, so the biggest mover is first; each row shows the event \
-counts (n) in both windows so you can judge how much to trust it.
-Use it to confirm onset and to see which service/route/version moved. Do not use it to explain \
-WHY (use find_outliers, optionally with baseline_start/baseline_end) or to read one request \
+Compare metrics BEFORE vs AFTER a moment (a deploy, a flag change, when an alert fired), \
+optionally per value of one field, with absolute and relative changes: "what changed at T?". \
+Give `at` (the windows are the equal-length stretches just before and after it) or explicit \
+`before` and `after`. Default metrics: error_rate and p95(duration_ms); event counts (n) are \
+always shown. With `group_by` the groups are ranked by change in the FIRST metric (biggest mover \
+first), each with n in both windows so you can judge trust.
+Use it to confirm onset and see which service/route/version moved. Do not use it to explain WHY \
+(use find_outliers, optionally with baseline_start/baseline_end) or to read one request \
 (get_trace). Find a good `at` first with run_query using granularity_seconds."""
 
 FETCH_GROUPS = 200  # groups fetched per window before ranking by change
@@ -61,28 +60,27 @@ class TimeRange(BaseModel):
 class CompareWindowsInput(ToolInput):
     at: str | None = Field(
         default=None,
-        description="The moment to split on (ISO-8601 UTC or HH:MM:SS). Use this OR before+after.",
+        description="Moment to split on (ISO-8601 UTC or HH:MM:SS). Use this OR before+after.",
     )
     window_seconds: int | None = Field(
         default=None,
         ge=1,
-        description="With `at`: length of each side in seconds (default: the longest equal-length "
-        "windows the data allows).",
+        description="With `at`: seconds per side (default: the longest equal windows possible).",
     )
     before: TimeRange | None = Field(default=None, description="Explicit 'before' window.")
     after: TimeRange | None = Field(default=None, description="Explicit 'after' window.")
     calculations: list[CalcInput] | None = Field(
         default=None,
         max_length=3,
-        description="Metrics to compare (max 3). Default: ERROR_RATE and P95 of duration_ms.",
+        description="Metrics (max 3). Default: ERROR_RATE and P95 duration_ms.",
     )
     group_by: FieldName | None = Field(
         default=None, description="Compare per value of this field (low cardinality)."
     )
     filters: list[FilterInput] = Field(
-        default_factory=list, max_length=8, description="Conditions combined with AND."
+        default_factory=list, max_length=8, description="Conditions, ANDed."
     )
-    limit: int = Field(default=10, ge=1, le=30, description="Max groups returned (1-30).")
+    limit: int = Field(default=10, ge=1, le=30, description="Max groups (1-30).")
 
 
 def _windows(

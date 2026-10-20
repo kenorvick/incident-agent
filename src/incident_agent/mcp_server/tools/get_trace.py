@@ -22,14 +22,13 @@ from incident_agent.mcp_server.tools._common import (
 NAME = "get_trace"
 
 DESCRIPTION = """\
-Summarise ONE request (trace) by its trace_id: a condensed span tree (repeated sibling spans \
-collapsed into one line with count/total/max), the critical path (the chain of spans that decided \
-the end-to-end time, with self time), the slowest spans by self time, and error spans with their \
-status/exception messages and key attributes. The deepest error span with no failing child is \
-marked as the likely origin of the failure.
-Get trace_ids from find_outliers (example events) - do not invent them. Use it to see how a \
-failure or slowdown propagates across services and where it starts. Returns a summary and span_ids \
-as pointers, never raw spans; do not use it for aggregate questions (use run_query / find_outliers)."""  # noqa: E501
+Summarise ONE request (trace) by trace_id: a condensed span tree (repeated siblings collapsed \
+with count/total/max), the critical path with self time, the slowest spans by self time, and \
+error spans with their status/exception messages and key attributes. The deepest error span with \
+no failing child is marked as the likely origin of the failure.
+Get trace_ids from find_outliers example events; do not invent them. Use it to see how a failure \
+or slowdown propagates across services and where it starts. Returns a summary with span_ids, \
+never raw spans; not for aggregate questions (use run_query / find_outliers)."""  # noqa: E501
 
 MAX_SLOWEST = 3
 MAX_ERRORS = 4
@@ -48,11 +47,9 @@ class GetTraceInput(ToolInput):
     trace_id: str = Field(
         min_length=1,
         max_length=128,
-        description="Trace id exactly as shown by find_outliers (hex string).",
+        description="Trace id as shown by find_outliers (hex).",
     )
-    max_tree_lines: int = Field(
-        default=25, ge=5, le=60, description="Max lines of the condensed span tree (5-60)."
-    )
+    max_tree_lines: int = Field(default=25, ge=5, le=60, description="Max span-tree lines (5-60).")
 
 
 @dataclass
