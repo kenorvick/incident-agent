@@ -189,10 +189,6 @@ class StepLog:
     def citation_checks(self) -> list[CitationCheck]:
         return [r for r in self.records if isinstance(r, CitationCheck)]
 
-    @property
-    def context_events(self) -> list[ContextEvent]:
-        return [r for r in self.records if isinstance(r, ContextEvent)]
-
     def tool_results_by_id(self) -> dict[str, list[ToolResult]]:
         out: dict[str, list[ToolResult]] = {}
         for tr in self.tool_results:

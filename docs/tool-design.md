@@ -386,6 +386,7 @@ from 3.6k and 0.9k before the Phase 6 trim; the first model call is about 7.2k r
 (it was 8.2k), of which roughly 6k are tool definitions. The rest is the JSON-schema skeleton of the
 filter and calculation objects, which cannot be trimmed without changing the tool interface.
 `compare_windows` was called in 1 of 113 recent runs but is about a fifth of the definitions.
+`scripts/tool_sizes.py` reports 3.1k for the five because it serialises the schema with spaces.
 
 **Descriptions are prompts.** Each says when to use the tool, what comes back, and when not to
 ("do NOT group by trace_id ... use find_outliers"; "do not use it to explain WHY"), and shows an
@@ -418,16 +419,16 @@ Approximate response sizes (chars / 4) through MCP on the two captured scenarios
 
 | Call | payment-failure-50pct | product-catalog-bad-product |
 |---|---|---|
-| describe_dataset | 1247 | 1228 |
-| describe_dataset (name_contains=http) | 652 | 652 |
+| describe_dataset | 1222 | 1228 |
+| describe_dataset (name_contains=http) | 627 | 651 |
 | run_query overview by service | 267 | 267 |
 | run_query slowest operations | 256 | 306 |
-| run_query error rate over time | 176 | 172 |
-| find_outliers errors | 1026 | 819 |
-| find_outliers slow spans | 784 | 844 |
-| get_trace | 1250 | 1127 |
-| compare_windows by service | 421 | 418 |
-| compare_windows overall | 157 | 156 |
+| run_query error rate over time | 172 | 176 |
+| find_outliers errors | 1026 | 834 |
+| find_outliers slow spans | 783 | 843 |
+| get_trace | 1257 | 1119 |
+| compare_windows by service | 423 | 418 |
+| compare_windows overall | 157 | 157 |
 
 ## Known limits
 

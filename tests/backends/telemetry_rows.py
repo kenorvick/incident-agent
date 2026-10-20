@@ -1,4 +1,4 @@
-"""Hand-written wide-event rows for backend tests (CONTRACTS fixture format).
+"""Hand-written wide-event rows for backend tests (the fixture format in docs/architecture.md).
 
 Layout (T0 = 2026-10-19T21:00:00Z, dataset end = T0 + 540.03 s):
 - traces 0..9 start at T0 + 60*i s; each has 4 spans: checkout root `POST /checkout`,

@@ -217,8 +217,7 @@ measure: whether cited *values* are in the cited result.
 - `save_memory`'s `source` accepts the ref as well as the real ID (the memory ledger counts calls
   the same way the loop does; a test checks that they agree) (`agent/memory.py`,
   `agent/prompts/memory.md`). Memory is off in evals.
-- Tests added or updated in `tests/agent/` and `tests/evals/`. Contract note appended to
-  `CONTRACTS.md`.
+- Tests added or updated in `tests/agent/` and `tests/evals/`.
 
 Nothing else changed: the category definitions are still not shown to the agent.
 
@@ -921,8 +920,8 @@ the recalled service afterwards), `cited memory` (a recall result used as eviden
 | run | memory prompt | runs that called `recall` | pass |
 |---|---|---|---|
 | `mem-benefit`, `mem-harm` | recall described as "optional and cheap" | **0 of 12** | 12/12 |
-| `mem-benefit-v2`, `mem-harm-v2` | recall as a bullet after the method ("right after orienting, call recall") | 3 of 15 | 15/15 |
-| `mem-benefit-v3`, `mem-harm-v3` | recall folded into step 1, called in the same turn as `describe_dataset`, with "storefront means `frontend`" style mapping | **15 of 15** | 15/15 |
+| `mem-benefit-v2`, `mem-harm-v2` | recall as a bullet after the method ("right after orienting, call recall") | 3 of 12 | 12/12 |
+| `mem-benefit-v3`, `mem-harm-v3` | recall folded into step 1, called in the same turn as `describe_dataset`, with "storefront means `frontend`" style mapping | **12 of 12** | 12/12 |
 
 The first two rounds measured nothing about memory: a tool being available is not the same as it
 being used, and an instruction placed after the main method was mostly ignored. Only when recall
@@ -958,3 +957,55 @@ became part of the numbered method did the agent use it.
    baseline can rule out a false alarm.
 3. For agents generally: whether a tool gets used depends on where its instruction sits in the
    method, not only on its description.
+
+---
+
+## Definition of done
+
+PLAN.md section 10, checked at the end of Phase 9.
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Offline eval runs from a fresh clone and prints a results table | Done, with a key | `uv sync` + `uv run pytest` + `uv run incident-agent --help` work in a fresh clone with no `.env`; without `OPENROUTER_API_KEY`, `eval` stops immediately with a clear message (exit 2) instead of failing mid-run. Timings: see the fresh-clone check below. A full eval needs a model key, as the plan allows. Not re-run in the clone, to avoid spend; the same code path ran as `iter5-lean-tool-defs` |
+| 2 | At least 10 scenarios including hard, negative-control and injection cases | Done | 13 scenarios in `fixtures/` (8 single, 2 hard, 1 negative control, 1 injection, 1 long), 14 MB total |
+| 3 | MCP server with at least 4 tools, documented, usable from an external client | Done | 5 tools; `docs/tool-design.md`; `tests/test_end_to_end.py::test_serve_mcp_command_speaks_stdio` drives the real `serve-mcp` subprocess over stdio with the official MCP client. Claude Code and MCP Inspector instructions are in the README but I did not run them in a live Claude Code or Inspector session |
+| 4 | Agent harness with step and token limits, step logs, context management, simple memory | Done | `AgentConfig` limits (15 model calls, 400k input tokens, $0.75, 300 s), JSONL step logs, `agent/context.py` (measured, `ctx-*` runs, off by default), `agent/memory.py` (measured, `mem-*` runs, off by default). A hard $10 spend cap was added on top |
+| 5 | `docs/eval-results.md` with baseline and at least 5 iteration entries | Done | `baseline`, `baseline-rescored`, `iter1` to `iter5`, `iter3-rerun`, plus Phase 7, 8 and injection entries; 19 entries in all |
+| 6 | `docs/lessons-learned.md` with failures and fixes, including things that did not work | Done | Steps A to F, including the null results (citation check never fired, memory no benefit, compaction no gain) |
+| 7 | README with architecture diagram, quickstart, real numbers, limitations, next steps | Done | README: Architecture, Quickstart, Results, What I learned, Limitations, What I'd do next |
+| 8 | `docs/architecture.md` covering the production-readiness gaps | Done | "What would change for production" (OAuth 2.1 and audience binding, tenant isolation, rate limits, audit logging, injection defenses, tracing the server) and the per-user/team/org memory design |
+| 9 | No secrets in git history | Done | `.env` was never tracked (`git log --all --name-only` lists only `.env.example`); a scan of every commit's diff for key patterns found only empty `KEY=` placeholders and a test fixture value; `.gitignore` covers `.env`, `*.key`, `*.pem`, `.cache/`, `runs/`, `captures/` |
+
+Not done, all optional in the plan: a live run against Honeycomb and the ~2 minute demo recording or GIF;
+the read-only timeline view. The `HoneycombBackend` smoke test (Phase 2) is skipped without a key and was
+never run with one.
+
+### Deviations from PLAN.md
+
+1. **OpenRouter instead of Bedrock.** The plan named Bedrock and the Anthropic API. The built provider
+   abstraction has OpenRouter (default) and the Anthropic API; there is no Bedrock client. The model is
+   Claude Sonnet 5.5 (`anthropic/claude-sonnet-5.5`), at medium reasoning effort.
+2. **Fixtures are `events.jsonl.gz`**, not `events.jsonl`, to stay under the size budget.
+3. **Parallel build with phase-gated commits**, not strictly one phase after another. Parts of the harness,
+   tools, eval runner and memory were built concurrently and merged at the phase gates, so the commit
+   history is not a clean phase-by-phase sequence.
+4. **Post-hoc measurement revisions.** Ground-truth categories were revised after the baseline was seen
+   (Step A, with the strict original kept), and injection scoring was narrowed to the conclusion after the
+   `inj-v2` run (both numbers kept). The plan's rule that ground truth is never inferred from the agent is
+   met in spirit (labels come from the fault flags and the written definitions), but the labels were
+   adjusted after seeing the agent's answers.
+5. **Injection fixture v2 was planted after capture** (`scripts/plant_injection.py`), not captured live,
+   because the live v1 payload never reached the model. v1 and v2 results are not comparable.
+6. **Context management built without a motivating failure.** The plan says to add each mechanism when a
+   failure motivates it; none did. It was built and measured under an artificial 12k window instead, and
+   left off by default.
+7. **Additions the plan did not ask for:** a hard spend cap and ledger; a harness-side `submit_report` tool
+   for the structured final answer; in-harness citation verification (iteration 4); `compare_windows`
+   (optional in the plan) as a fifth tool.
+8. **Optional items not done:** live Honeycomb demo and recording, the timeline view (see above).
+9. **Eval entries record `dirty` commits.** Runs were made on the working tree and committed afterwards,
+   so an entry's commit id is the last commit before the code that produced it, flagged dirty.
+10. **README results landed at Phase 9.** The plan says to update the README at the end of every phase; the
+    README carried a status stub and a results placeholder until this phase, with the numbers living in
+    this file and `eval-results.md` in the meantime.
+11. **No CI.** Evals are run by hand; a CI job is listed under "What I'd do next".

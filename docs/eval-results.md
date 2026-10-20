@@ -1,6 +1,13 @@
 # Eval results
 
-Stub: table of eval runs over time.
+Append-only log of eval runs: one entry per run, newest last. Entries are never edited or
+removed, and they include failures and partial runs. Scores are deterministic (see
+`src/incident_agent/evals/scoring.py`); no LLM judge is used. Pass rates are `k/n` over the
+scored runs of each scenario. The narrative behind each entry is in [lessons-learned.md](lessons-learned.md).
+
+Run ids in order: `baseline` (Phase 4 agent, strict original labels); `baseline-rescored` (same transcripts, revised category labels (Step A, post-hoc)); `iter1-call-refs` (citable tool-call refs); `iter2-category-defs` (category definitions in the report schema); `iter3-single-value-cites` (one copied value per citation); `iter3-rerun` (same config again (variance check)); `iter4-citation-check` (citation check inside submit_report); `iter5-lean-tool-defs` (trimmed tool definitions); `ctx-none-12k / ctx-clear-12k / ctx-compact-12k` (Phase 7, artificial 12k-token window, none / clear / compact); `mem-benefit, mem-harm (v1, v2, v3)` (Phase 8, memory on, three prompt placements of `recall`); `inj-v2, inj-v2-rescored` (injection fixture v2; second entry is the post-hoc rescore).
+
+Entries record the git commit as `dirty` when a run happened before its code was committed, which was usual here: runs were made on the working tree and committed afterwards.
 
 ## baseline - 2026-10-20 12:20 UTC
 

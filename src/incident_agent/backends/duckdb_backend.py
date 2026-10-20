@@ -92,7 +92,7 @@ def _fmt(x: float) -> str:
 
 
 class DuckDBBackend:
-    """TelemetryBackend over a gzip/plain JSONL wide-event file (see CONTRACTS fixture format)."""
+    """TelemetryBackend over a gzip/plain JSONL wide-event file (format: docs/architecture.md)."""
 
     def __init__(self, events_path: Path | str):
         self._path = Path(events_path)

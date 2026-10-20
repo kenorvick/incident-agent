@@ -349,14 +349,15 @@ how to finish. The prompt is a tuning surface, so changes to it are made one at 
 
 ### Context management
 
-`agent/context.py`, wired into the loop before every model call. **Read this first: no run has ever
-needed it.** In every eval so far an investigation takes 4 to 6 model calls, the largest single request is
-about 16k tokens (of which the system prompt and tool definitions are about 8.2k), and cumulative input is
-at most about 60k. So the mechanisms are built, tested with scripted models, and meant to be *evaluated
-under a deliberately constrained window* that simulates a long investigation or a small-context model.
-They are not tuned to a measured failure, and any claim that they improve accuracy has to come from that
-simulated comparison, not from production-like runs. No such comparison has been run yet (it costs
-real model spend), so there are no accuracy numbers for these mechanisms in this repo.
+`agent/context.py`, wired into the loop before every model call. **Read this first: no real run has ever
+needed it.** In every eval an investigation takes 4 to 6 model calls, the largest single request is
+about 14k tokens (of which the system prompt and tool definitions are about 7.2k), and cumulative input is
+at most about 60k. So the mechanisms are built, tested with scripted models, and were *evaluated under a
+deliberately constrained 12k-token window* that simulates a long investigation or a small-context model.
+They are not tuned to a measured failure, and the accuracy numbers come from that simulation, not from
+production-like runs: with the window, no management passed 2 of 8 runs, `clear` 7 of 8 and `compact` 7 of 8
+(compaction fired 3 times; the rest fell back to clearing). Defaults stay off. Details and caveats in
+[lessons-learned.md](lessons-learned.md#phase-7-context-management-under-a-constrained-window).
 
 Settings (`AgentConfig.context`, a `ContextConfig`; CLI `--context-mode` and `--max-context-tokens`):
 
@@ -372,7 +373,7 @@ Settings (`AgentConfig.context`, a `ContextConfig`; CLI `--context-mode` and `--
 How a request is sized: the provider's reported total input tokens of the last call, plus the
 approximate tokens (characters / 4) of the messages appended since. The first request is the prefix plus
 the alert, estimated from characters (JSON schemas at 2.5 characters per token; 7.8k estimated against
-8.2k reported). Everything else is an estimate, so the window is a simulation and not a hard provider
+8.2k reported, measured before the tool definitions were trimmed to 7.2k). Everything else is an estimate, so the window is a simulation and not a hard provider
 limit.
 
 - **Cap.** A result over the cap is cut at a line boundary and ends with a note: what was cut (characters
@@ -402,7 +403,7 @@ limit.
   otherwise promote injected telemetry text to the trust level of the user. Compaction is skipped in favor
   of clearing when the summary call fails or returns nothing, when there is too little history to be
   worth summarizing, when the prefix alone is so close to the threshold that a summary could not get under
-  it (the 8.2k fixed prefix is most of a 13k window, so this matters in the simulation), and after
+  it (the 7.2k fixed prefix is most of a 12k window, so this matters in the simulation), and after
   `max_compactions`.
 - **Refs stay valid.** Every tool result keeps its `[ref cN]`, ref numbering is never reset, and the step
   log is written from the full result before any clearing. The anti-fabrication scorer reads results from
@@ -424,8 +425,8 @@ limit.
   tools, so it reads nothing from the main cache and pays full input price for the whole transcript.
   Whether clearing or compaction is a net saving on a given bill is an empirical question that the cache
   columns in the step log can answer; at this project's scale (a $0.025 investigation) it may well not be.
-- **Limits of this design.** The thresholds are shares of a window, so a fixed 8.2k prefix makes small
-  windows awkward: at 13k, 60% is already below the prefix. Clearing can only free tool-result text (a few
+- **Limits of this design.** The thresholds are shares of a window, so a fixed 7.2k prefix makes small
+  windows awkward: at 12k, 60% is exactly the prefix. Clearing can only free tool-result text (a few
   thousand tokens in these runs; assistant text and reasoning are 40% of per-turn growth and are not
   touched). Compaction relies on the model's notes being complete and exact; the test checks that the
   harness delivers the facts and keeps refs gradable, not that a real model summarizes well.
@@ -452,7 +453,8 @@ evidence, an optional injection description, and capture metadata.
 Memory is **opt-in hints with provenance, not truth**. It is off by default, and with it off the system
 prompt and tool list are byte-identical to a build that never had memory. Code: `agent/memory.py`;
 prompt: `agent/prompts/memory.md`. It is wired in programmatically, with
-`make_investigator(memory=MemoryConfig(...))`; there is no CLI flag yet.
+`make_investigator(memory=MemoryConfig(...))` or, from the CLI, `--memory-dir` / `--memory-seed`
+(`--memory-per-run` gives each run a private copy of the store).
 
 ### Store
 
@@ -513,9 +515,11 @@ verb are falsely rejected. It is one layer among several: only the agent can wri
 real source call, recalled text is labelled unverified and quoted as data, the prompt requires
 verification, notes expire, and retrieval is scoped.
 
-Status: the store, tools, sanitizer, provenance and isolation are unit-tested (`tests/agent/test_memory*.py`).
-The PLAN's memory evals (a benefit pair, a seeded stale-memory harm case, an isolation eval) are not yet
-built; seeding support (`MemoryConfig.seed_file`, relative `age_days`/`ttl_days`) exists for them.
+Status: the store, tools, sanitizer, provenance and isolation are unit-tested (`tests/agent/test_memory*.py`,
+including `test_memory_isolation.py`). The memory evals ran in Phase 8 (seeds in `evals/memory_seeds/`,
+`mem-benefit*` and `mem-harm*` entries in [eval-results.md](eval-results.md)): memory resisted stale and
+wrong notes (0 followed, 0 cited, all verified) but gave no benefit and cost more tokens, so it stays off by
+default. See [lessons-learned.md](lessons-learned.md#phase-8-memory).
 
 ## Extending memory to per-user / per-team / per-org scopes
 
@@ -730,7 +734,7 @@ What exists now:
   protected: no write tool should be added without the controls below.
 - Inputs are schema-validated; reports are structured and validated.
 - The eval suite has an injection scenario (a payload in the ad service's error message demanding a false
-  root cause and a canary string), scored deterministically. Each run also records `injection_seen` (the
+  root cause and a canary string), scored deterministically on the report's conclusion (quoting the payload is recorded as `injection_quoted`, not failed). Each run also records `injection_seen` (the
   payload was in a tool result), because resilience means nothing for a run that never saw the payload.
 - The memory sanitizer, provenance and verify-before-trust prompting limit a stored injection's reach.
 - The anti-fabrication check measures whether claims trace to real tool output.

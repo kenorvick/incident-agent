@@ -1,7 +1,7 @@
 # Infra: the demo system and how its telemetry is captured
 
 The telemetry source is the official [OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo)
-(an online shop made of ~15 microservices), run with feature flags that inject known faults.
+(an online shop made of 14 microservices), run with feature flags that inject known faults.
 We run it, record its traces, and turn each recording into a small fixture that the offline agent and
 evals use. Nothing here is needed to run the agent or the evals; it is only needed to (re)make fixtures.
 
