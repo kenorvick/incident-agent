@@ -994,3 +994,351 @@ Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. Aft
 | shipping-intl-slowdown | 3/3 | - |  |
 
 Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## mem-benefit - 2026-10-20 13:21 UTC
+
+<!-- eval-run: mem-benefit -->
+
+- **Commit:** `8a04d3c` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=None`, `context_mode=none`, `effort=medium`, `memory_dir=runs/memory`, `memory_seed=evals/memory_seeds/benefit-baselines.yaml`, `memory_per_run=True`; runs per scenario `3`; concurrency `3`
+- **Runs:** 6 executed of 6 planned (2 scenarios); 0 errored
+- **Cost:** $0.1858 total, $0.0310 per run (ledger total; step logs sum to $0.1858)
+- **Notes:** Phase 8 benefit: correct healthy-baseline notes seeded (per-run copy). Control = iter5-lean-tool-defs (same code, no memory).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| healthy-baseline | negative | 3 | 3/3 | - | - | - | 100% | 0/3 | false alarm 0/3 | 4.7 | 5.0 | 49.4k / 858 | $0.0343 |
+| payment-failure-50pct | single | 3 | 3/3 | 3/3 | 3/3 | 0/3 | 100% | 0/3 | - | 4.3 | 5.3 | 49.6k / 1.1k | $0.0276 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 6/6 | 100% |
+| single (1 scenarios) | 3/3 | 100% |
+| negative (1 scenarios) | 3/3 | 100% |
+
+Variance: 0 of 2 scenarios with more than one run had mixed outcomes.
+
+### Memory
+
+Diagnostics from the step logs; they do not affect pass/fail. `verified`: after recalling notes about a service the agent queried that service; `cited memory`: a recall result was cited as evidence; `followed stale`: wrong top cause that a recalled note pointed at.
+
+| scenario | memory runs | got notes | recalls/run | notes returned | verified | cited memory | followed stale | saves ok |
+|---|---|---|---|---|---|---|---|---|
+| healthy-baseline | 3 | 0/3 | 0.0 | - | - | 0/3 | 0/3 | 0 of 0 |
+| payment-failure-50pct | 3 | 0/3 | 0.0 | - | - | 0/3 | 0/3 | 0 of 0 |
+
+### Failures
+
+None: every scored run passed.
+
+### Change: `iter5-lean-tool-defs` -> `mem-benefit`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `8a04d3c` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 100% | +0.0 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | - | - |
+| pass rate (negative) | 100% | 100% | +0.0 pp |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | - | - |
+| service correct | 100% | 100% | +0.0 pp |
+| category correct | 100% | 100% | +0.0 pp |
+| category exact (primary only) | 61% | 0% | -61.1 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 0% | +0.0 pp |
+| mean steps | 4.4 | 4.5 | +0.0641 |
+| mean tool calls | 5.3 | 5.2 | -0.1154 |
+| mean tokens (in+out) | 44337.9 | 50438.5 | +6101 |
+| mean cost per run (USD) | $0.0220 | $0.0310 | +0.009014 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | - |  |
+| hard-payment-errors-plus-ad-gc | 3/3 | - |  |
+| hard-red-herring-cart-errors | 3/3 | - |  |
+| healthy-baseline | 3/3 | 3/3 | same |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | - |  |
+| payment-failure-50pct | 3/3 | 3/3 | same |
+| payment-unreachable | 3/3 | - |  |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## mem-harm - 2026-10-20 13:21 UTC
+
+<!-- eval-run: mem-harm -->
+
+- **Commit:** `8a04d3c` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=None`, `context_mode=none`, `effort=medium`, `memory_dir=runs/memory`, `memory_seed=evals/memory_seeds/harm-stale-wrong.yaml`, `memory_per_run=True`; runs per scenario `2`; concurrency `3`
+- **Runs:** 6 executed of 6 planned (3 scenarios); 0 errored
+- **Cost:** $0.1229 total, $0.0205 per run (ledger total; step logs sum to $0.1229)
+- **Notes:** Phase 8 harm: stale and wrong notes seeded that point away from the true cause. Control = iter5-lean-tool-defs (no memory).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| hard-red-herring-cart-errors | hard | 2 | 2/2 | 2/2 | 2/2 | 2/2 | 100% | 0/2 | blamed red herring 0/2 | 5.0 | 6.0 | 61.3k / 1.3k | $0.0319 |
+| healthy-baseline | negative | 2 | 2/2 | - | - | - | 100% | 0/2 | false alarm 0/2 | 4.0 | 4.0 | 41.6k / 790 | $0.0153 |
+| payment-unreachable | single | 2 | 2/2 | 2/2 | 2/2 | 2/2 | 100% | 0/2 | - | 3.0 | 4.0 | 30.4k / 768 | $0.0143 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 6/6 | 100% |
+| single (1 scenarios) | 2/2 | 100% |
+| hard (1 scenarios) | 2/2 | 100% |
+| negative (1 scenarios) | 2/2 | 100% |
+
+Variance: 0 of 3 scenarios with more than one run had mixed outcomes.
+
+### Memory
+
+Diagnostics from the step logs; they do not affect pass/fail. `verified`: after recalling notes about a service the agent queried that service; `cited memory`: a recall result was cited as evidence; `followed stale`: wrong top cause that a recalled note pointed at.
+
+| scenario | memory runs | got notes | recalls/run | notes returned | verified | cited memory | followed stale | saves ok |
+|---|---|---|---|---|---|---|---|---|
+| hard-red-herring-cart-errors | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+| healthy-baseline | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+| payment-unreachable | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+
+### Failures
+
+None: every scored run passed.
+
+### Change: `iter5-lean-tool-defs` -> `mem-harm`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `8a04d3c` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 100% | +0.0 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | 100% | +0.0 pp |
+| pass rate (negative) | 100% | 100% | +0.0 pp |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | - | - |
+| service correct | 100% | 100% | +0.0 pp |
+| category correct | 100% | 100% | +0.0 pp |
+| category exact (primary only) | 61% | 100% | +38.9 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 0% | +0.0 pp |
+| mean steps | 4.4 | 4.0 | -0.4359 |
+| mean tool calls | 5.3 | 4.7 | -0.6154 |
+| mean tokens (in+out) | 44337.9 | 45376.8 | +1039 |
+| mean cost per run (USD) | $0.0220 | $0.0205 | -0.001468 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | - |  |
+| hard-payment-errors-plus-ad-gc | 3/3 | - |  |
+| hard-red-herring-cart-errors | 3/3 | 2/2 | same |
+| healthy-baseline | 3/3 | 2/2 | same |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | - |  |
+| payment-failure-50pct | 3/3 | - |  |
+| payment-unreachable | 3/3 | 2/2 | same |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## mem-benefit-v2 - 2026-10-20 13:22 UTC
+
+<!-- eval-run: mem-benefit-v2 -->
+
+- **Commit:** `26108cc` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=None`, `context_mode=none`, `effort=medium`, `memory_dir=runs/memory`, `memory_seed=evals/memory_seeds/benefit-baselines.yaml`, `memory_per_run=True`; runs per scenario `3`; concurrency `3`
+- **Runs:** 6 executed of 6 planned (2 scenarios); 0 errored
+- **Cost:** $0.2006 total, $0.0334 per run (ledger total; step logs sum to $0.2006)
+- **Notes:** Phase 8 benefit v2: recall is now a method step (26108cc). Correct baseline notes seeded. Control = iter5-lean-tool-defs (no memory).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| healthy-baseline | negative | 3 | 3/3 | - | - | - | 100% | 0/3 | false alarm 0/3 | 5.0 | 5.0 | 52.2k / 877 | $0.0320 |
+| payment-failure-50pct | single | 3 | 3/3 | 3/3 | 3/3 | 0/3 | 100% | 0/3 | - | 5.0 | 7.0 | 62.4k / 1.1k | $0.0349 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 6/6 | 100% |
+| single (1 scenarios) | 3/3 | 100% |
+| negative (1 scenarios) | 3/3 | 100% |
+
+Variance: 0 of 2 scenarios with more than one run had mixed outcomes.
+
+### Memory
+
+Diagnostics from the step logs; they do not affect pass/fail. `verified`: after recalling notes about a service the agent queried that service; `cited memory`: a recall result was cited as evidence; `followed stale`: wrong top cause that a recalled note pointed at.
+
+| scenario | memory runs | got notes | recalls/run | notes returned | verified | cited memory | followed stale | saves ok |
+|---|---|---|---|---|---|---|---|---|
+| healthy-baseline | 3 | 0/3 | 0.0 | - | - | 0/3 | 0/3 | 0 of 0 |
+| payment-failure-50pct | 3 | 3/3 | 1.0 | `baseline-checkout` | 0/3 | 0/3 | 0/3 | 0 of 0 |
+
+Flagged:
+
+- `payment-failure-50pct` run 1: recalled notes about checkout but never queried it afterwards
+- `payment-failure-50pct` run 2: recalled notes about checkout but never queried it afterwards
+- `payment-failure-50pct` run 3: recalled notes about checkout but never queried it afterwards
+
+### Failures
+
+None: every scored run passed.
+
+### Change: `iter5-lean-tool-defs` -> `mem-benefit-v2`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `26108cc` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 100% | +0.0 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | - | - |
+| pass rate (negative) | 100% | 100% | +0.0 pp |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | - | - |
+| service correct | 100% | 100% | +0.0 pp |
+| category correct | 100% | 100% | +0.0 pp |
+| category exact (primary only) | 61% | 0% | -61.1 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 0% | +0.0 pp |
+| mean steps | 4.4 | 5.0 | +0.5641 |
+| mean tool calls | 5.3 | 6.0 | +0.7179 |
+| mean tokens (in+out) | 44337.9 | 58322.8 | +1.398e+04 |
+| mean cost per run (USD) | $0.0220 | $0.0334 | +0.01147 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | - |  |
+| hard-payment-errors-plus-ad-gc | 3/3 | - |  |
+| hard-red-herring-cart-errors | 3/3 | - |  |
+| healthy-baseline | 3/3 | 3/3 | same |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | - |  |
+| payment-failure-50pct | 3/3 | 3/3 | same |
+| payment-unreachable | 3/3 | - |  |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## mem-harm-v2 - 2026-10-20 13:23 UTC
+
+<!-- eval-run: mem-harm-v2 -->
+
+- **Commit:** `26108cc` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=None`, `context_mode=none`, `effort=medium`, `memory_dir=runs/memory`, `memory_seed=evals/memory_seeds/harm-stale-wrong.yaml`, `memory_per_run=True`; runs per scenario `2`; concurrency `3`
+- **Runs:** 6 executed of 6 planned (3 scenarios); 0 errored
+- **Cost:** $0.1400 total, $0.0233 per run (ledger total; step logs sum to $0.1400)
+- **Notes:** Phase 8 harm v2: recall is now a method step (26108cc). Stale/wrong notes seeded pointing away from the true cause. Control = iter5-lean-tool-defs (no memory).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| hard-red-herring-cart-errors | hard | 2 | 2/2 | 2/2 | 2/2 | 2/2 | 100% | 0/2 | blamed red herring 0/2 | 5.0 | 6.5 | 61.4k / 1.3k | $0.0342 |
+| healthy-baseline | negative | 2 | 2/2 | - | - | - | 100% | 0/2 | false alarm 0/2 | 5.0 | 5.0 | 52.2k / 892 | $0.0142 |
+| payment-unreachable | single | 2 | 2/2 | 2/2 | 2/2 | 2/2 | 100% | 0/2 | - | 4.5 | 4.5 | 48.5k / 868 | $0.0216 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 6/6 | 100% |
+| single (1 scenarios) | 2/2 | 100% |
+| hard (1 scenarios) | 2/2 | 100% |
+| negative (1 scenarios) | 2/2 | 100% |
+
+Variance: 0 of 3 scenarios with more than one run had mixed outcomes.
+
+### Memory
+
+Diagnostics from the step logs; they do not affect pass/fail. `verified`: after recalling notes about a service the agent queried that service; `cited memory`: a recall result was cited as evidence; `followed stale`: wrong top cause that a recalled note pointed at.
+
+| scenario | memory runs | got notes | recalls/run | notes returned | verified | cited memory | followed stale | saves ok |
+|---|---|---|---|---|---|---|---|---|
+| hard-red-herring-cart-errors | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+| healthy-baseline | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+| payment-unreachable | 2 | 0/2 | 0.0 | - | - | 0/2 | 0/2 | 0 of 0 |
+
+### Failures
+
+None: every scored run passed.
+
+### Change: `iter5-lean-tool-defs` -> `mem-harm-v2`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `26108cc` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 100% | +0.0 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | 100% | +0.0 pp |
+| pass rate (negative) | 100% | 100% | +0.0 pp |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | - | - |
+| service correct | 100% | 100% | +0.0 pp |
+| category correct | 100% | 100% | +0.0 pp |
+| category exact (primary only) | 61% | 100% | +38.9 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 0% | +0.0 pp |
+| mean steps | 4.4 | 4.8 | +0.3974 |
+| mean tool calls | 5.3 | 5.3 | +0.05128 |
+| mean tokens (in+out) | 44337.9 | 55048.8 | +1.071e+04 |
+| mean cost per run (USD) | $0.0220 | $0.0233 | +0.001372 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | - |  |
+| hard-payment-errors-plus-ad-gc | 3/3 | - |  |
+| hard-red-herring-cart-errors | 3/3 | 2/2 | same |
+| healthy-baseline | 3/3 | 2/2 | same |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | - |  |
+| payment-failure-50pct | 3/3 | - |  |
+| payment-unreachable | 3/3 | 2/2 | same |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
