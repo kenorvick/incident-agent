@@ -1,0 +1,19 @@
+# OPTIONAL: adds Honeycomb as a second trace destination. infra/demo.sh includes this file only
+# when HONEYCOMB_API_KEY is set (and only for the minimal profile). See collector-config.honeycomb.yaml.
+#
+# Compose replaces `command` rather than merging it, so the upstream minimal-profile command is
+# restated here with one extra --config. If upstream changes that command, update this too.
+
+services:
+  otel-collector:
+    command:
+      - --config=/etc/otelcol-config.yml
+      - --config=/etc/otelcol-config-extras.yml
+      - --config=/etc/otelcol-config-honeycomb.yml
+      - --feature-gates=service.profilesSupport
+    volumes:
+      - ${INCIDENT_AGENT_INFRA_DIR:?run infra/demo.sh instead of compose directly}/collector-config.honeycomb.yaml:/etc/otelcol-config-honeycomb.yml:ro
+    environment:
+      # Pass-through from the host environment; the value never appears in a file.
+      - HONEYCOMB_API_KEY
+      - HONEYCOMB_API_URL

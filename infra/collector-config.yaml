@@ -1,0 +1,44 @@
+# Collector "extras" layer for incident-agent.
+#
+# The upstream demo (3.1.0) starts the collector with
+#   --config=/etc/otelcol-config.yml --config=/etc/otelcol-config-extras.yml
+# and the second path is whatever $OTEL_COLLECTOR_CONFIG_EXTRAS points at. infra/demo.sh points
+# it at this file, so everything below is MERGED onto the demo's own configuration and the demo's
+# receivers, processors, `debug` exporter and `span_metrics` connector stay exactly as shipped.
+#
+# What this adds: a `file` exporter that appends every trace, as OTLP JSON (one export request
+# per line), to captures/traces.jsonl on the host. scripts/capture_scenario.sh slices that file
+# per scenario and incident_agent.flatten turns it into wide events.
+#
+# MERGE RULE (upstream's note): maps merge, but ARRAYS ARE REPLACED, not appended. The traces
+# pipeline's `exporters` list below therefore repeats the upstream names (debug, span_metrics).
+# Its `receivers` and `processors` are not mentioned, so they are inherited unchanged. This file
+# is written against the minimal and full profiles. It is not compatible with the demo's
+# observability profile (compose.observability.yaml), which sets its own traces exporter list.
+#
+# Optional Honeycomb export lives in collector-config.honeycomb.yaml (layered on only when
+# HONEYCOMB_API_KEY is set; see infra/README.md). Nothing here requires it.
+
+receivers:
+  # The collector image's Docker client defaults to API 1.44; Docker Desktop 24.x (daemon API 1.43)
+  # rejects it and the collector then refuses to start. Pin the older API version.
+  docker_stats:
+    api_version: "1.43"
+
+exporters:
+  file/traces:
+    # Container path. docker-compose.override.yaml mounts ./captures at /captures.
+    path: /captures/traces.jsonl
+    format: json
+    # O_APPEND: restarting the collector must not truncate a capture in progress, and a host-side
+    # truncate (`: > captures/traces.jsonl`) stays safe because the writer always seeks to the end.
+    append: true
+    create_directory: true
+    flush_interval: 1s
+    # No `rotation:` block on purpose. Rotation renames files mid-capture; the capture script
+    # records byte offsets into this single file instead.
+
+service:
+  pipelines:
+    traces:
+      exporters: [debug, span_metrics, file/traces]

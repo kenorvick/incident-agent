@@ -1,0 +1,38 @@
+# incident-agent layer on top of the upstream OpenTelemetry Demo compose files.
+# Do not run this directly: use infra/demo.sh, which exports the variables referenced here and
+# passes the files in the right order. Everything is additive; no upstream file is edited.
+#
+# Relative paths in compose resolve against the project directory (the upstream clone), which is
+# why host paths below come from absolute variables exported by demo.sh.
+
+services:
+  otel-collector:
+    volumes:
+      # Where the `file/traces` exporter in collector-config.yaml writes (/captures/traces.jsonl).
+      # The extras config itself is mounted by upstream via ${OTEL_COLLECTOR_CONFIG_EXTRAS}.
+      - ${INCIDENT_AGENT_CAPTURES_DIR:?run infra/demo.sh instead of compose directly}:/captures
+    environment:
+      # Same reason as docker_stats.api_version in collector-config.yaml (resource detector).
+      - DOCKER_API_VERSION=1.43
+
+  flagd:
+    ports:
+      # OFREP evaluation API on a fixed localhost port, so scripts/flagctl.py can confirm a flag
+      # change has reached flagd before a capture treats the fault as started.
+      - "127.0.0.1:${INCIDENT_AGENT_OFREP_PORT:-18016}:8016"
+
+  load-generator:
+    # Upstream's locustfile also fires `user_ask_agent`, which POSTs to an `agent` service that
+    # only exists in compose.agent.yaml. Without it every capture would contain a constant stream
+    # of load-generator errors that have nothing to do with the injected fault. The wrapper below
+    # disables that one task (weight 0) in the container, then execs upstream's own entrypoint.
+    entrypoint: ["/bin/sh", "/loadgen-entrypoint.sh"]
+    volumes:
+      - ${INCIDENT_AGENT_INFRA_DIR:?run infra/demo.sh instead of compose directly}/loadgen-entrypoint.sh:/loadgen-entrypoint.sh:ro
+    environment:
+      # Headless Chromium users cost ~1 GB of RAM and add browser-side spans; skip them.
+      - LOCUST_BROWSER_TRAFFIC_ENABLED=false
+      # Locust still runs with its web UI (LOCUST_HEADLESS=false, LOCUST_AUTOSTART=true upstream)
+      # so the user count can be changed at runtime: POST /loadgen/swarm via the frontend proxy.
+      - LOCUST_USERS=${INCIDENT_AGENT_LOCUST_USERS:-20}
+      - LOCUST_SPAWN_RATE=${INCIDENT_AGENT_LOCUST_SPAWN_RATE:-2}

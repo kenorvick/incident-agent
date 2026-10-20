@@ -1,0 +1,28 @@
+# OPTIONAL second extras layer: also ship traces to Honeycomb over OTLP/HTTP.
+#
+# Not loaded by default. infra/demo.sh adds it (via docker-compose.honeycomb.yaml) only when
+# HONEYCOMB_API_KEY is set in the environment (or in .env). With no key the stack runs exactly as
+# before and no Honeycomb exporter exists. The offline fixtures and evals never need this.
+#
+# Loaded AFTER collector-config.yaml, and arrays are replaced rather than appended, so the traces
+# exporter list repeats everything from that file plus the new exporter.
+#
+# Notes
+#  - Use an "Ingest" API key for the environment you want the data in.
+#  - Modern (environment) keys route each span to a dataset named after its `service.name`, so the
+#    demo's services land in separate datasets; query them together with the `__all__` dataset.
+#    For a classic key, add `x-honeycomb-dataset: <dataset>` to the headers below.
+#  - EU region: export HONEYCOMB_API_URL=https://api.eu1.honeycomb.io
+#  - Exporter type is `otlp_http` (the name this collector release uses; older releases `otlphttp`).
+
+exporters:
+  otlp_http/honeycomb:
+    endpoint: ${env:HONEYCOMB_API_URL:-https://api.honeycomb.io}
+    headers:
+      x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+    compression: gzip
+
+service:
+  pipelines:
+    traces:
+      exporters: [debug, span_metrics, file/traces, otlp_http/honeycomb]
