@@ -717,3 +717,65 @@ none), ranked by runs lost:
   original is reported beside the rescored numbers.
 - Citation checking in the harness (iteration 4) means the eval's grounding columns measure the
   submitted report, not first attempts; the guardrail never fired on the current model.
+
+---
+
+## Phase 7: context management under a constrained window
+
+### Symptom (or rather, the lack of one)
+
+No eval run has ever had a context problem. Across the iteration 3 to 5 suites, investigations take
+4 to 6 model calls and the largest single request is 11.9k to 14.3k input tokens (iteration 5), of
+which about 7.2k is the fixed prefix (system prompt plus tool definitions). PLAN.md says to add each
+mechanism only when a failure motivates it, so the honest finding is: on this suite, at this model's
+context size, none of these mechanisms is needed.
+
+### What was built anyway, and how it was measured
+
+`agent/context.py` adds a harness-side tool-result cap (on by default, 4,000 tokens; it has never
+fired because the tools already cap their own output), and two opt-in modes: `clear` (older tool
+results become one-line stubs that keep their `[ref cN]`, so evidence stays citable) and `compact`
+(one extra model call summarises the investigation into decisions, findings with refs, open
+questions, ruled-out hypotheses and key IDs, and the history is replaced by the alert plus that
+summary). `tests/agent/test_context_compaction.py` checks that key facts (trace id, values, refs)
+survive compaction and that a pre-compaction ref still grounds in the eval.
+
+To exercise them, the four longest scenarios were run under an artificial **12,000-token context
+window** (`--max-context-tokens 12000`), chosen from the iteration 5 logs so that an unmanaged run
+runs out on almost every scenario. This simulates a long investigation or a small-context model; it
+is not evidence about a real long investigation. N=2 per scenario per arm; control is the
+unconstrained `iter5-lean-tool-defs` suite (N=3) on the same scenarios.
+
+### Result
+
+| arm | pass | ended `budget` (window exhausted) | mean tokens / run (in+out) | cost / run | context events |
+|---|---|---|---|---|---|
+| control, no window (`iter5-lean-tool-defs`) | 12/12 | 0 | about 46k | $0.022 | none |
+| `none`, 12k (`ctx-none-12k`) | 2/8 (25%) | 6/8 | 39.5k (runs end early) | $0.015 | none |
+| `clear`, 12k (`ctx-clear-12k`) | 7/8 (88%) | 1/8 | 50.7k | $0.036 | 19 clears |
+| `compact`, 12k (`ctx-compact-12k`) | 7/8 (88%) | 1/8 | 51.8k | $0.035 | 3 compactions, 20 clears |
+
+- **Clearing recovers almost all of the accuracy** the window costs (25% to 88%), at about 10% more
+  tokens than the unconstrained control: stubs invalidate the prompt cache after the changed point,
+  and runs take slightly more steps.
+- **Compaction adds nothing measurable at this size.** It fired only 3 times; the other 20 times it
+  fell back to clearing, because the history above the 7.2k fixed prefix was too short to be worth
+  summarising (`compact_min_history_tokens`). With a fixed prefix this large relative to the
+  window, there is little history to compact. Compaction should matter when investigations run long
+  enough that history dominates the prefix, which this suite never does.
+- **The one failure in both managed arms is the same run** (`hard-red-herring-cart-errors` run 2):
+  it still exhausted the window. About 40% of per-turn growth is the agent's own text and reasoning,
+  which clearing does not touch.
+- Total cost of the three arms: $0.69.
+
+### Takeaways
+
+1. Keep `mode=none` as the default: the mechanisms cost tokens and, on real investigations here,
+   buy nothing.
+2. If this agent ran with a small context budget, `clear` is the mechanism to enable; it is cheap
+   and recovers nearly all accuracy.
+3. The largest lever on context use is not history management but the fixed prefix (tool
+   definitions are about 6k tokens), which iteration 5 cut by 12%. Dropping a rarely used tool
+   (`compare_windows` was called in 1 of 113 recent runs) would cut more.
+4. A real test of compaction needs investigations an order of magnitude longer than these, for
+   example many affected services with several traces each; that is future work.

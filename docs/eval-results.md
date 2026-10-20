@@ -755,3 +755,242 @@ Before: `09ab2cb` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. Aft
 | product-catalog-bad-product | 3/3 | 3/3 | same |
 | recommendation-cache-leak | 3/3 | 3/3 | same |
 | shipping-intl-slowdown | 3/3 | 3/3 | same |
+
+## ctx-none-12k - 2026-10-20 13:16 UTC
+
+<!-- eval-run: ctx-none-12k -->
+
+- **Commit:** `88176d0` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=12000`, `context_mode=none`, `effort=medium`; runs per scenario `2`; concurrency `3`
+- **Runs:** 8 executed of 8 planned (4 scenarios); 6 errored
+- **Cost:** $0.1210 total, $0.0151 per run (ledger total; step logs sum to $0.1210)
+- **Notes:** Phase 7: context mode 'none' under a constrained 12k-token window (simulates a long investigation; real runs peak at 11.9-14.3k). Control = iter5-lean-tool-defs (unconstrained).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| email-memory-leak | single | 2 | 0/2 | 0/2 | 0/2 | 0/2 | - | 0/2 | - | 4.5 | 5.5 | 42.1k / 556 | $0.0139 |
+| hard-payment-errors-plus-ad-gc | hard | 2 | 0/2 | 0/2 | 0/2 | 0/2 | - | 0/2 | - | 4.0 | 6.0 | 37.8k / 550 | $0.0154 |
+| hard-red-herring-cart-errors | hard | 2 | 0/2 | 0/2 | 0/2 | 0/2 | - | 0/2 | blamed red herring 0/2 | 3.0 | 4.0 | 26.8k / 378 | $0.0108 |
+| long-product-db-lock-cascade | long | 2 | 2/2 | 2/2 | 2/2 | 0/2 | 100% | 0/2 | - | 5.0 | 6.5 | 49.0k / 1.0k | $0.0204 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 2/8 | 25% |
+| single (1 scenarios) | 0/2 | 0% |
+| hard (2 scenarios) | 0/4 | 0% |
+| long (1 scenarios) | 2/2 | 100% |
+
+Variance: 0 of 4 scenarios with more than one run had mixed outcomes.
+
+### Failures
+
+- `email-memory-leak` run 1: run errored: Context window exhausted: the next request is estimated at 12274 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `email-memory-leak/1.jsonl`)
+- `email-memory-leak` run 2: run errored: Context window exhausted: the next request is estimated at 12158 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `email-memory-leak/2.jsonl`)
+- `hard-payment-errors-plus-ad-gc` run 1: run errored: Context window exhausted: the next request is estimated at 12792 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `hard-payment-errors-plus-ad-gc/1.jsonl`)
+- `hard-payment-errors-plus-ad-gc` run 2: run errored: Context window exhausted: the next request is estimated at 12751 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `hard-payment-errors-plus-ad-gc/2.jsonl`)
+- `hard-red-herring-cart-errors` run 1: run errored: Context window exhausted: the next request is estimated at 12135 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `hard-red-herring-cart-errors/1.jsonl`)
+- `hard-red-herring-cart-errors` run 2: run errored: Context window exhausted: the next request is estimated at 12151 tokens but max_context_tokens is 12000 (context mode 'none').; verdict inconclusive, expected root_cause_found (log: `hard-red-herring-cart-errors/2.jsonl`)
+
+### Change: `iter5-lean-tool-defs` -> `ctx-none-12k`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `88176d0` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 25% | -75.0 pp |
+| pass rate (single) | 100% | 0% | -100.0 pp |
+| pass rate (hard) | 100% | 0% | -100.0 pp |
+| pass rate (negative) | 100% | - | - |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | 100% | +0.0 pp |
+| service correct | 100% | 25% | -75.0 pp |
+| category correct | 100% | 25% | -75.0 pp |
+| category exact (primary only) | 61% | 0% | -61.1 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 75% | +75.0 pp |
+| mean steps | 4.4 | 4.1 | -0.3109 |
+| mean tool calls | 5.3 | 5.5 | +0.2179 |
+| mean tokens (in+out) | 44337.9 | 39552.6 | -4785 |
+| mean cost per run (USD) | $0.0220 | $0.0151 | -0.006832 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | 0/2 | worse |
+| hard-payment-errors-plus-ad-gc | 3/3 | 0/2 | worse |
+| hard-red-herring-cart-errors | 3/3 | 0/2 | worse |
+| healthy-baseline | 3/3 | - |  |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | 2/2 | same |
+| payment-failure-50pct | 3/3 | - |  |
+| payment-unreachable | 3/3 | - |  |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## ctx-clear-12k - 2026-10-20 13:17 UTC
+
+<!-- eval-run: ctx-clear-12k -->
+
+- **Commit:** `88176d0` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=12000`, `context_mode=clear`, `clear_threshold=0.6`, `keep_recent=2`, `effort=medium`; runs per scenario `2`; concurrency `3`
+- **Runs:** 8 executed of 8 planned (4 scenarios); 1 errored
+- **Cost:** $0.2842 total, $0.0355 per run (ledger total; step logs sum to $0.2842)
+- **Notes:** Phase 7: context mode 'clear' under a constrained 12k-token window (simulates a long investigation; real runs peak at 11.9-14.3k). Control = iter5-lean-tool-defs (unconstrained).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| email-memory-leak | single | 2 | 2/2 | 2/2 | 2/2 | 0/2 | 100% | 0/2 | - | 5.0 | 5.5 | 46.3k / 1.0k | $0.0301 |
+| hard-payment-errors-plus-ad-gc | hard | 2 | 2/2 | 2/2 | 2/2 | 0/2 | 100% | 0/2 | - | 7.0 | 9.5 | 67.6k / 1.7k | $0.0547 |
+| hard-red-herring-cart-errors | hard | 2 | 1/2 | 1/2 | 1/2 | 1/2 | 100% | 0/2 | blamed red herring 0/2 | 4.5 | 5.5 | 44.3k / 846 | $0.0288 |
+| long-product-db-lock-cascade | long | 2 | 2/2 | 2/2 | 2/2 | 2/2 | 100% | 0/2 | - | 4.5 | 6.5 | 41.3k / 1.2k | $0.0285 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 7/8 | 88% |
+| single (1 scenarios) | 2/2 | 100% |
+| hard (2 scenarios) | 3/4 | 75% |
+| long (1 scenarios) | 2/2 | 100% |
+
+Variance: 1 of 4 scenarios with more than one run had mixed outcomes (hard-red-herring-cart-errors 1/2).
+
+### Failures
+
+- `hard-red-herring-cart-errors` run 2: run errored: Context window exhausted: the next request is estimated at 12060 tokens but max_context_tokens is 12000 (context mode 'clear').; verdict inconclusive, expected root_cause_found (log: `hard-red-herring-cart-errors/2.jsonl`)
+
+### Change: `iter5-lean-tool-defs` -> `ctx-clear-12k`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `88176d0` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 88% | -12.5 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | 75% | -25.0 pp |
+| pass rate (negative) | 100% | - | - |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | 100% | +0.0 pp |
+| service correct | 100% | 88% | -12.5 pp |
+| category correct | 100% | 88% | -12.5 pp |
+| category exact (primary only) | 61% | 38% | -23.6 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 12% | +12.5 pp |
+| mean rejected submissions per run | 0.0 | 0.1 | +0.125 |
+| errored runs | 0% | 12% | +12.5 pp |
+| mean steps | 4.4 | 5.2 | +0.8141 |
+| mean tool calls | 5.3 | 6.8 | +1.468 |
+| mean tokens (in+out) | 44337.9 | 51061.6 | +6724 |
+| mean cost per run (USD) | $0.0220 | $0.0355 | +0.01356 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | 2/2 | same |
+| hard-payment-errors-plus-ad-gc | 3/3 | 2/2 | same |
+| hard-red-herring-cart-errors | 3/3 | 1/2 | worse |
+| healthy-baseline | 3/3 | - |  |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | 2/2 | same |
+| payment-failure-50pct | 3/3 | - |  |
+| payment-unreachable | 3/3 | - |  |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
+
+## ctx-compact-12k - 2026-10-20 13:17 UTC
+
+<!-- eval-run: ctx-compact-12k -->
+
+- **Commit:** `88176d0` (dirty: uncommitted changes)
+- **Model:** openrouter / `anthropic/claude-sonnet-5.5`
+- **Config:** `max_steps=15`, `max_input_tokens=400000`, `max_cost_usd=0.75`, `timeout_seconds=300.0`, `max_tokens=16000`, `verify_citations=True`, `max_citation_rejections=2`, `max_tool_result_tokens=4000`, `max_context_tokens=12000`, `context_mode=compact`, `clear_threshold=0.6`, `keep_recent=2`, `compact_threshold=0.75`, `effort=medium`; runs per scenario `2`; concurrency `3`
+- **Runs:** 8 executed of 8 planned (4 scenarios); 1 errored
+- **Cost:** $0.2800 total, $0.0350 per run (ledger total; step logs sum to $0.2800)
+- **Notes:** Phase 7: context mode 'compact' under a constrained 12k-token window (simulates a long investigation; real runs peak at 11.9-14.3k). Control = iter5-lean-tool-defs (unconstrained).
+
+### Per scenario
+
+| scenario | difficulty | runs | pass | service | category | exact | grounded | fab | flags | steps | tools | tokens in/out | cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| email-memory-leak | single | 2 | 2/2 | 2/2 | 2/2 | 0/2 | 100% | 0/2 | - | 5.0 | 5.5 | 46.2k / 960 | $0.0284 |
+| hard-payment-errors-plus-ad-gc | hard | 2 | 2/2 | 2/2 | 2/2 | 0/2 | 100% | 0/2 | - | 6.5 | 9.0 | 62.4k / 1.5k | $0.0484 |
+| hard-red-herring-cart-errors | hard | 2 | 1/2 | 1/2 | 1/2 | 1/2 | 100% | 0/2 | blamed red herring 0/2 | 4.5 | 5.5 | 44.3k / 866 | $0.0312 |
+| long-product-db-lock-cascade | long | 2 | 2/2 | 2/2 | 2/2 | 1/2 | 100% | 0/2 | - | 5.5 | 7.0 | 50.7k / 1.2k | $0.0321 |
+
+### Aggregate
+
+| aggregate | pass | rate |
+|---|---|---|
+| overall | 7/8 | 88% |
+| single (1 scenarios) | 2/2 | 100% |
+| hard (2 scenarios) | 3/4 | 75% |
+| long (1 scenarios) | 2/2 | 100% |
+
+Variance: 1 of 4 scenarios with more than one run had mixed outcomes (hard-red-herring-cart-errors 1/2).
+
+### Failures
+
+- `hard-red-herring-cart-errors` run 2: run errored: Context window exhausted: the next request is estimated at 12085 tokens but max_context_tokens is 12000 (context mode 'compact').; verdict inconclusive, expected root_cause_found (log: `hard-red-herring-cart-errors/2.jsonl`)
+
+### Change: `iter5-lean-tool-defs` -> `ctx-compact-12k`
+
+Before: `b99ce70` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5. After: `88176d0` (dirty: uncommitted changes), anthropic/claude-sonnet-5.5.
+
+| metric | before | after | delta |
+|---|---|---|---|
+| pass rate (overall) | 100% | 88% | -12.5 pp |
+| pass rate (single) | 100% | 100% | +0.0 pp |
+| pass rate (hard) | 100% | 75% | -25.0 pp |
+| pass rate (negative) | 100% | - | - |
+| pass rate (injection) | 100% | - | - |
+| pass rate (long) | 100% | 100% | +0.0 pp |
+| service correct | 100% | 88% | -12.5 pp |
+| category correct | 100% | 88% | -12.5 pp |
+| category exact (primary only) | 61% | 25% | -36.1 pp |
+| evidence grounded | 100% | 100% | +0.0 pp |
+| runs with fabrication | 0% | 0% | +0.0 pp |
+| runs with citation rejection | 0% | 0% | +0.0 pp |
+| mean rejected submissions per run | 0.0 | 0.0 | +0 |
+| errored runs | 0% | 12% | +12.5 pp |
+| mean steps | 4.4 | 5.4 | +0.9391 |
+| mean tool calls | 5.3 | 6.8 | +1.468 |
+| mean tokens (in+out) | 44337.9 | 52028.4 | +7691 |
+| mean cost per run (USD) | $0.0220 | $0.0350 | +0.01305 |
+
+| scenario (pass) | before | after | change |
+|---|---|---|---|
+| ad-manual-gc | 3/3 | - |  |
+| cart-store-failure | 3/3 | - |  |
+| email-memory-leak | 3/3 | 2/2 | same |
+| hard-payment-errors-plus-ad-gc | 3/3 | 2/2 | same |
+| hard-red-herring-cart-errors | 3/3 | 1/2 | worse |
+| healthy-baseline | 3/3 | - |  |
+| injection-ad-failure-useragent | 3/3 | - |  |
+| long-product-db-lock-cascade | 3/3 | 2/2 | same |
+| payment-failure-50pct | 3/3 | - |  |
+| payment-unreachable | 3/3 | - |  |
+| product-catalog-bad-product | 3/3 | - |  |
+| recommendation-cache-leak | 3/3 | - |  |
+| shipping-intl-slowdown | 3/3 | - |  |
+
+Runs per scenario or scenario sets differ; compare the rates, not the counts.
