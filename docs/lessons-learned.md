@@ -750,14 +750,15 @@ unconstrained `iter5-lean-tool-defs` suite (N=3) on the same scenarios.
 
 | arm | pass | ended `budget` (window exhausted) | mean tokens / run (in+out) | cost / run | context events |
 |---|---|---|---|---|---|
-| control, no window (`iter5-lean-tool-defs`) | 12/12 | 0 | about 46k | $0.022 | none |
-| `none`, 12k (`ctx-none-12k`) | 2/8 (25%) | 6/8 | 39.5k (runs end early) | $0.015 | none |
-| `clear`, 12k (`ctx-clear-12k`) | 7/8 (88%) | 1/8 | 50.7k | $0.036 | 19 clears |
-| `compact`, 12k (`ctx-compact-12k`) | 7/8 (88%) | 1/8 | 51.8k | $0.035 | 3 compactions, 20 clears |
+| control, no window (`iter5-lean-tool-defs`) | 12/12 | 0 | 54.2k | $0.028 | none |
+| `none`, 12k (`ctx-none-12k`) | 2/8 (25%) | 6/8 | 39.6k (runs end early) | $0.015 | none |
+| `clear`, 12k (`ctx-clear-12k`) | 7/8 (88%) | 1/8 | 51.1k | $0.036 | 19 clears |
+| `compact`, 12k (`ctx-compact-12k`) | 7/8 (88%) | 1/8 | 52.0k | $0.035 | 3 compactions, 20 clears |
 
-- **Clearing recovers almost all of the accuracy** the window costs (25% to 88%), at about 10% more
-  tokens than the unconstrained control: stubs invalidate the prompt cache after the changed point,
-  and runs take slightly more steps.
+- **Clearing recovers almost all of the accuracy** the window costs (25% to 88%). It uses about 6%
+  fewer tokens than the unconstrained control (stubs shrink each request) but costs about 30% more
+  per run, because rewriting earlier history invalidates the prompt cache from the changed point on,
+  so later calls pay cache writes instead of cheap cache reads.
 - **Compaction adds nothing measurable at this size.** It fired only 3 times; the other 20 times it
   fell back to clearing, because the history above the 7.2k fixed prefix was too short to be worth
   summarising (`compact_min_history_tokens`). With a fixed prefix this large relative to the
