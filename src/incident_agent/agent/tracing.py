@@ -70,8 +70,10 @@ class StepLogger:
             config=config,
         )
 
-    def model_call(self, step: int, response: ModelResponse) -> None:
+    def model_call(self, step: int, response: ModelResponse, *, purpose: str | None = None) -> None:
+        """`purpose` marks calls that are not an investigation turn (`compaction`)."""
         usage = response.usage
+        extra = {"purpose": purpose} if purpose else {}
         self._write(
             "model_call",
             step=step,
@@ -86,6 +88,7 @@ class StepLogger:
             tool_calls=[
                 {"id": c.id, "name": c.name, "arguments": c.input} for c in response.tool_calls
             ],
+            **extra,
         )
 
     def tool_result(

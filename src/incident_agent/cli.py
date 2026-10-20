@@ -1,15 +1,57 @@
 """Command-line interface."""
 
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 if TYPE_CHECKING:
+    from incident_agent.agent.loop import AgentConfig
     from incident_agent.agent.report import InvestigationResult
 
 app = typer.Typer(help="Investigate microservice incidents with telemetry-querying agents.")
+
+
+class ContextModeChoice(StrEnum):
+    none = "none"
+    clear = "clear"
+    compact = "compact"
+
+
+ContextModeOption = Annotated[
+    ContextModeChoice,
+    typer.Option(
+        "--context-mode",
+        help="What to do as the context window fills: none, clear stale results, or compact.",
+    ),
+]
+MaxContextOption = Annotated[
+    int | None,
+    typer.Option(
+        "--max-context-tokens",
+        min=1,
+        help="Simulated per-call context window. Default: unlimited. Required for clear/compact.",
+    ),
+]
+
+
+def build_agent_config(
+    max_steps: int | None, context_mode: ContextModeChoice, max_context_tokens: int | None
+) -> "AgentConfig":
+    """The agent config for the CLI flags; a bad combination exits with a usage error."""
+    from pydantic import ValidationError
+
+    from incident_agent.agent.context import ContextConfig
+    from incident_agent.agent.loop import AgentConfig
+
+    try:
+        context = ContextConfig(mode=context_mode.value, max_context_tokens=max_context_tokens)
+        return AgentConfig(context=context, **({"max_steps": max_steps} if max_steps else {}))
+    except ValidationError as exc:
+        typer.echo(exc.errors()[0]["msg"].removeprefix("Value error, "), err=True)
+        raise typer.Exit(code=2) from exc
 
 
 @app.command()
@@ -23,6 +65,8 @@ def investigate(
     max_steps: Annotated[int | None, typer.Option(help="Model-call limit (default 15).")] = None,
     provider: Annotated[str | None, typer.Option(help="openrouter or anthropic.")] = None,
     model: Annotated[str | None, typer.Option(help="Model ID for the provider.")] = None,
+    context_mode: ContextModeOption = ContextModeChoice.none,
+    max_context_tokens: MaxContextOption = None,
     fixtures_dir: Annotated[Path | None, typer.Option(help="Fixtures directory.")] = None,
     runs_dir: Annotated[Path, typer.Option(help="Where the step log is written.")] = Path("runs"),
 ) -> None:
@@ -30,7 +74,6 @@ def investigate(
     import anyio
 
     from incident_agent.agent.investigator import make_investigator
-    from incident_agent.agent.loop import AgentConfig
     from incident_agent.agent.models import ModelError, get_model_client
     from incident_agent.backends import default_fixtures_dir
     from incident_agent.evals.scenario import list_scenarios, load_scenario
@@ -44,7 +87,7 @@ def investigate(
     if alert:
         spec = spec.model_copy(update={"alert": alert})
 
-    config = AgentConfig(**({"max_steps": max_steps} if max_steps else {}))
+    config = build_agent_config(max_steps, context_mode, max_context_tokens)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = runs_dir / "adhoc" / f"{stamp}-{scenario}.jsonl"
     investigator = make_investigator(
@@ -103,6 +146,8 @@ def eval(
     max_steps: Annotated[int | None, typer.Option(help="Model-call limit (default 15).")] = None,
     provider: Annotated[str | None, typer.Option(help="openrouter or anthropic.")] = None,
     model: Annotated[str | None, typer.Option(help="Model ID for the provider.")] = None,
+    context_mode: ContextModeOption = ContextModeChoice.none,
+    max_context_tokens: MaxContextOption = None,
     notes: Annotated[str, typer.Option(help="Free text recorded with the results.")] = "",
     run_id: Annotated[str | None, typer.Option(help="Run id (default: a timestamp).")] = None,
     resume: Annotated[bool, typer.Option(help="Continue an existing --run-id.")] = False,
@@ -119,7 +164,6 @@ def eval(
     import anyio
 
     from incident_agent.agent.investigator import make_investigator
-    from incident_agent.agent.loop import AgentConfig
     from incident_agent.agent.models import ModelError, SpendLedger, get_model_client
     from incident_agent.backends import default_fixtures_dir
     from incident_agent.evals.report import append_entry, render_entry
@@ -146,7 +190,7 @@ def eval(
 
     ledger = SpendLedger()
     typer.echo(f"{len(specs)} scenarios x {runs} runs. {ledger.describe()}\n")
-    config = AgentConfig(**({"max_steps": max_steps} if max_steps else {}))
+    config = build_agent_config(max_steps, context_mode, max_context_tokens)
     result = anyio.run(
         lambda: run_eval(
             specs,
@@ -159,7 +203,11 @@ def eval(
             concurrency=concurrency,
             run_id=run_id,
             runs_dir=runs_dir,
-            config={"effort": os.environ.get("MODEL_EFFORT", "medium")},
+            config={
+                "effort": os.environ.get("MODEL_EFFORT", "medium"),
+                "context_mode": context_mode.value,
+                "max_context_tokens": max_context_tokens,
+            },
             provider=provider or os.environ.get("MODEL_PROVIDER", "openrouter"),
             model_id=model_id,
             notes=notes,

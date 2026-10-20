@@ -30,3 +30,6 @@ fixtures/**/*.parquet
 
 # Upstream demo clone (never vendored)
 infra/opentelemetry-demo/
+
+# Claude Code local state and agent worktrees
+.claude/

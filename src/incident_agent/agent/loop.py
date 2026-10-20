@@ -1,18 +1,22 @@
 """The investigation loop: call the model, run the tools it asks for, repeat until it submits.
 
-History is a plain list of messages, appended to and never rewritten (context management belongs
-in `context.py` once measured failures motivate it). Every way a run can end, including limits and
-errors, produces an `InvestigationResult` with a report; nothing here is allowed to crash a run.
+History is a plain list of messages, appended to as the run goes. It is rewritten only by the opt-in
+context management in `context.py` (clearing stale results, compaction), and with the defaults the
+only change is a size cap on a single oversized tool result. Every way a run can end, including
+limits and errors, produces an `InvestigationResult` with a report; nothing here is allowed to
+crash a run.
 """
 
 from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 import anyio
 from pydantic import BaseModel, Field
 
+from incident_agent.agent.context import ContextConfig, ContextManager, loggable, prefix_tokens
 from incident_agent.agent.models.base import (
     BudgetExceededError,
     Message,
@@ -70,6 +74,16 @@ class AgentConfig(BaseModel):
     max_citation_rejections: int = Field(
         default=2, ge=0, description="Rejected submissions before one is accepted as it is."
     )
+    context: ContextConfig = Field(
+        default_factory=ContextConfig,
+        description="Tool-result cap and the opt-in context window and management mode.",
+    )
+
+    def log_dict(self) -> dict[str, Any]:
+        """Settings for the `run_start` log event, with the context settings as flat keys."""
+        flat = self.model_dump(exclude={"context"})
+        flat.update(loggable(self.context))
+        return flat
 
 
 async def investigate(
@@ -98,7 +112,7 @@ async def investigate(
             alert=alert,
             provider=_attr(model, "provider"),
             model_id=_attr(model, "model"),
-            config=config.model_dump(),
+            config=config.log_dict(),
         )
         try:
             with anyio.fail_after(config.timeout_seconds):
@@ -148,6 +162,9 @@ class _Run:
         self.error: str | None = None
         self._nudged = False
         self._cutoffs = 0
+        self.context = ContextManager(
+            config.context, log, prefix=prefix_tokens(self.system, self.specs)
+        )
 
     def stop(self, reason: TerminatedReason, error: str | None) -> None:
         self.reason, self.error = reason, error
@@ -162,19 +179,32 @@ class _Run:
             return f"Cost limit reached (${self.cost_usd:.4f} >= ${cfg.max_cost_usd:.2f})."
         return None
 
+    def _stop_at_limit(self) -> bool:
+        if (limit := self._limit_reached()) is None:
+            return False
+        reason = (
+            TerminatedReason.MAX_STEPS
+            if self.steps >= self.config.max_steps
+            else TerminatedReason.BUDGET
+        )
+        self.stop(reason, limit)
+        return True
+
     async def loop(self, alert: str) -> None:
         self.messages.append(Message.user(f"Alert:\n\n{alert}"))
         while True:
-            if (limit := self._limit_reached()) is not None:
-                reason = (
-                    TerminatedReason.MAX_STEPS
-                    if self.steps >= self.config.max_steps
-                    else TerminatedReason.BUDGET
-                )
-                return self.stop(reason, limit)
+            if self._stop_at_limit():
+                return
+            if (
+                exhausted := await self.context.prepare(self.messages, self._summarize)
+            ) is not None:
+                return self.stop(TerminatedReason.BUDGET, exhausted)
+            if self._stop_at_limit():  # a summary call can use the last step
+                return
             response = await self.model.complete(
                 self.system, self.messages, self.specs, self.config.max_tokens
             )
+            self.context.after_call(response.usage.total_input_tokens, len(self.messages))
             self._record_response(response)
             if response.tool_calls:
                 self._cutoffs = 0
@@ -200,12 +230,30 @@ class _Run:
                     "reminder.",
                 )
 
-    def _record_response(self, response: ModelResponse) -> None:
+    def _account(self, response: ModelResponse, purpose: str | None = None) -> None:
+        """Count one model call in the run totals and the step log."""
         self.steps += 1
         self.input_tokens += response.usage.total_input_tokens
         self.output_tokens += response.usage.output_tokens
         self.cost_usd += response.cost_usd
-        self.log.model_call(self.steps, response)
+        self.log.model_call(self.steps, response, purpose=purpose)
+
+    async def _summarize(self, system: str, request: str) -> str | None:
+        """The compaction call: no tools, counted as a step. None if it failed; the spend cap
+        still propagates and ends the run."""
+        try:
+            response = await self.model.complete(
+                system, [Message.user(request)], [], self.config.max_tokens
+            )
+        except BudgetExceededError:
+            raise
+        except Exception:
+            return None
+        self._account(response, purpose="compaction")
+        return response.text if response.stop_reason != "max_tokens" else None
+
+    def _record_response(self, response: ModelResponse) -> None:
+        self._account(response)
         message = response.to_message()
         if not message.content:  # providers reject empty assistant turns
             message.content = [TextBlock(text="(no output)")]
@@ -225,6 +273,7 @@ class _Run:
         results = []
         for i, (call, (text, is_error, latency_ms)) in enumerate(zip(calls, outputs, strict=True)):
             ref = call_ref(self.tool_calls + i + 1)  # memory's ToolCallLedger counts the same way
+            text, truncated = self.context.cap_result(ref, call.name, text)
             shown = with_ref(ref, text)
             if call.name != SUBMIT_REPORT:
                 self.submit.note_result(ref, text)
@@ -237,6 +286,7 @@ class _Run:
                 content=shown,
                 is_error=is_error,
                 latency_ms=latency_ms,
+                truncated_by_harness=truncated,
             )
             results.append(ToolResultBlock(tool_use_id=call.id, content=shown, is_error=is_error))
         self.tool_calls += len(calls)

@@ -767,6 +767,8 @@ class MemoryModelClient:
         tools: Sequence[ToolSpec],
         max_tokens: int,
     ) -> ModelResponse:
+        if not tools:  # a harness-internal call (compaction summary): no memory prompt or ledger
+            return await self.inner.complete(system, messages, tools, max_tokens)
         self.ledger.commit()  # the previous turn's tool calls have all finished
         response = await self.inner.complete(
             system + self.system_suffix, messages, tools, max_tokens
