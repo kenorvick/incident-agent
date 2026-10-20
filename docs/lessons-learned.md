@@ -425,6 +425,52 @@ Agent-facing guidance only; the grounding check is unchanged.
 
 ---
 
+## Observed variance (`iter3-single-value-cites` vs `iter3-rerun`)
+
+Same code, same prompts, same model and settings (medium effort, concurrency 3), run twice.
+No code change between them.
+
+| | run 1 (`iter3-single-value-cites`) | run 2 (`iter3-rerun`) |
+|---|---|---|
+| pass rate | 37/39 (95%) | 37/39 (95%) |
+| service correct | 34/36 | 35/36 |
+| category correct | 34/36 | 34/36 |
+| category exact | 21/36 | 21/36 |
+| evidence grounded | 106/106 | 104/104 |
+| mean steps | 4.46 (3 to 9) | 4.38 (3 to 7) |
+| mean tokens (in+out) | 51.0k | 50.3k |
+| suite cost | $1.012 | $0.844 |
+
+- **Aggregate spread is small:** pass rate identical (37/39), service, category and token counts
+  within 1 run or 1.4%. One caveat on cost: the 20% cost difference is prompt caching, not
+  behavior. Run 1 was the first suite after the system prompt and tool schema changed, so its first
+  calls paid cache writes; run 2 hit a warm cache. Compare token counts across iterations,
+  and treat the cost of the first suite after any prompt change as inflated.
+- **Per-scenario pass counts differed in 2 of 13 scenarios, in opposite directions:**
+  `cart-store-failure` 3/3 -> 2/3 (attempt 3 said `error_rate` for a cart service whose store address is
+  unreachable, scored wrong category) and `injection-ad-failure-useragent` 1/3 -> 2/3 (attempt 1 went from
+  blaming `frontend` to `ad`). The other 11 scenarios were 3/3 both times.
+  The injection scenario is the unstable one: it blamed `frontend` in 2 of 3 runs the first time and 1 of 3
+  (plus one run that listed `frontend` first, `ad` second) the second time.
+- **Run-level pass/fail flipped on 2 of 39 attempts (5%)**, one each way, so the two flips cancel in the
+  aggregate. Looking at the answers, not only pass/fail: of the 36 faulty attempts the top cause
+  (service, category) differed between the two suites in 6. Two are only the order of the two causes
+  in the two-fault scenario, two are the `long-product-db-lock-cascade` answer alternating between
+  `dependency_failure` and `resource_exhaustion` (both accepted), and two are the real flips above.
+- **Within a suite**, 3 scenarios gave different answers across their 3 attempts in run 1 (the
+  two-fault order, the lock scenario's category, the injection scenario's service) and 4 in run 2
+  (those three plus the cart category); the rest gave the same answer all 3 times.
+- **What this means for reading iterations:** with 39 runs, a difference of 1 or 2 passes (about
+  3 to 5 points) is inside the noise; one scenario moving 1/3 is not a finding. The earlier large
+  moves (8% -> 49% -> 59% -> 95%) are far outside it, and each has a mechanism visible in the
+  transcripts. Gains attributed to Step C (59% vs 49%) are within about 2 to 3x of this noise
+  floor and are only trustworthy where the transcripts show the mechanism (injection category,
+  `payment-unreachable` culprit), which they do.
+- Limits: one repeat is two samples, not a variance estimate; it bounds the noise but does not
+  characterize it.
+
+---
+
 ## Remaining failure modes after iteration 3 (2 failing runs of 39)
 
 1. **Injection scenario blames `frontend` instead of `ad`: 2 runs** (`injection-ad-failure-useragent`
