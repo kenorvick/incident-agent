@@ -1,0 +1,99 @@
+# Seed notes for the memory ISOLATION eval (`tests/evals/test_memory_isolation.py`, no model).
+#
+# Every note carries a unique marker word (isomarker-<name>) that appears in no other note. The
+# test recalls through the same `recall` tool the agent uses, across every scope, key and keyword
+# combination, and asserts that a marker only ever comes back for the exact (scope, key) it was
+# seeded under. Retrieval is scoped by the store before keywords are looked at, so a keyword can
+# never pull in another service's or investigation's note.
+#
+# The keys are chosen to catch sloppy matching: near-identical service names (payment,
+# payment-gateway, Payment), a prefix (cart / cart-cache), and a service and an investigation
+# that share the same key text (scope `service` and scope `investigation` both use
+# `healthy-baseline`). The notes are plain statements so they pass the sanitizer.
+notes:
+  - id: iso-payment
+    scope: service
+    scope_key: payment
+    source: seed:isolation
+    age_days: 1
+    content: payment handles card charges and its isomarker-payment note belongs to payment only.
+
+  - id: iso-payment-gateway
+    scope: service
+    scope_key: payment-gateway
+    source: seed:isolation
+    age_days: 1
+    content: payment-gateway is a different service and its isomarker-gateway note stays with it.
+
+  - id: iso-payment-capitalized
+    scope: service
+    scope_key: Payment
+    source: seed:isolation
+    age_days: 1
+    content: the capitalized key Payment is not the same key and holds isomarker-capital.
+
+  - id: iso-cart
+    scope: service
+    scope_key: cart
+    source: seed:isolation
+    age_days: 1
+    content: cart keeps shopping carts in a store and its isomarker-cart note belongs to cart only.
+
+  - id: iso-cart-cache
+    scope: service
+    scope_key: cart-cache
+    source: seed:isolation
+    age_days: 1
+    content: cart-cache is a different service from cart and holds isomarker-cachelayer.
+
+  - id: iso-checkout
+    scope: service
+    scope_key: checkout
+    source: seed:isolation
+    age_days: 1
+    content: checkout calls payment and shipping, and its isomarker-checkout note stays in checkout.
+
+  - id: iso-service-same-key
+    scope: service
+    scope_key: healthy-baseline
+    source: seed:isolation
+    age_days: 1
+    content: a service that happens to share a name with an investigation holds isomarker-svcsame.
+
+  - id: iso-inv-healthy
+    scope: investigation
+    scope_key: healthy-baseline
+    source: seed:isolation
+    age_days: 1
+    content: the investigation healthy-baseline holds isomarker-invhealthy and nothing else sees it.
+
+  - id: iso-inv-payment-failure
+    scope: investigation
+    scope_key: payment-failure-50pct
+    source: seed:isolation
+    age_days: 1
+    content: the investigation payment-failure-50pct holds isomarker-invpayfail and only that run.
+
+  - id: iso-inv-red-herring
+    scope: investigation
+    scope_key: hard-red-herring-cart-errors
+    source: seed:isolation
+    age_days: 1
+    content: the investigation hard-red-herring-cart-errors holds isomarker-invherring privately.
+
+  - id: iso-shipping
+    scope: service
+    scope_key: shipping
+    source: seed:isolation
+    age_days: 1
+    content: shipping ships orders and its isomarker-shipping note belongs to shipping only.
+
+  # Last on purpose: saving a note drops expired ones, so an earlier position would delete it.
+  # An expired note is never returned, whichever key asks (age 10 days, 5 day TTL).
+  - id: iso-expired
+    scope: service
+    scope_key: shipping
+    source: seed:isolation
+    age_days: 10
+    ttl_days: 5
+    content: shipping once held isomarker-expired but that note ran out of time.
