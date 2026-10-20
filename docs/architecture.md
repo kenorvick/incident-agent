@@ -279,7 +279,7 @@ everything so far. The format is a contract with the eval harness (`evals/logs.p
 | `run_start` | run id, scenario id, alert, provider, model id, config |
 | `model_call` | step, uncached input / output / cache-read / cache-write tokens, cost, latency, stop reason, the model's text, its tool calls (id, name, arguments) |
 | `tool_result` | step, tool call id, name, arguments, `is_error`, size in chars and approximate tokens, latency, `truncated_by_harness`, and the exact `content` the model saw |
-| `context_event` | a `truncate` / `clear` / `compact` record. **Defined but not emitted today**: the harness does no context management yet. |
+| `context_event` | a `truncate` / `clear` / `compact` record with details (see [Context management](#context-management)). Emitted only when a mechanism acts. A compaction summary call is also a `model_call`, marked `purpose: "compaction"`. |
 | `final` | the report and the termination reason |
 | `run_end` | steps, tool calls, tokens, cost, duration |
 
@@ -322,9 +322,9 @@ that prefix is byte-stable and cacheable:
   are stripped deterministically, and the optional per-dataset field-name enum
   (`dynamic_field_enum`) is off by default, partly because it would change the definitions per dataset
   and bloat them.
-- History is **append-only**: no message is ever rewritten, so each turn's prefix is the previous turn's
-  prefix plus new content. This is also why compaction and result clearing, when added, will cost cache
-  hits and must be measured against the savings.
+- History is **append-only by default**: no message is rewritten, so each turn's prefix is the previous
+  turn's prefix plus new content. The opt-in context mechanisms (below) break that on purpose, at a cost
+  in cache hits that is described in [Context management](#context-management).
 - On OpenRouter the client marks the system block and sets top-level automatic cache control, which
   advances to the last block of the conversation on each call (two of Anthropic's four breakpoints). The
   prefix order is tools, then system, then messages, so the system breakpoint covers the tools too. On the
@@ -347,10 +347,86 @@ how to finish. The prompt is a tuning surface, so changes to it are made one at 
 
 ### Context management
 
-Not built yet. The only protections today are the tools' own size limits and the 12,000-character
-server-side cap. Harness-side truncation, clearing of stale tool results and compaction are in the plan
-for when a measured failure motivates them (`agent/context.py` is a stub and the `context_event` log
-type is reserved for it).
+`agent/context.py`, wired into the loop before every model call. **Read this first: no run has ever
+needed it.** In every eval so far an investigation takes 4 to 6 model calls, the largest single request is
+about 16k tokens (of which the system prompt and tool definitions are about 8.2k), and cumulative input is
+at most about 60k. So the mechanisms are built, tested with scripted models, and meant to be *evaluated
+under a deliberately constrained window* that simulates a long investigation or a small-context model.
+They are not tuned to a measured failure, and any claim that they improve accuracy has to come from that
+simulated comparison, not from production-like runs. No such comparison has been run yet (it costs
+real model spend), so there are no accuracy numbers for these mechanisms in this repo.
+
+Settings (`AgentConfig.context`, a `ContextConfig`; CLI `--context-mode` and `--max-context-tokens`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `max_tool_result_tokens` | 4000 (on) | Hard cap on one tool result (about 4 characters per token). Cheap safety net. |
+| `max_context_tokens` | none (unlimited) | The per-call window the run must fit in. Required for `clear` and `compact`. |
+| `mode` | `none` | `none`, `clear` or `compact`. |
+| `clear_threshold` / `compact_threshold` | 0.6 / 0.75 | Share of the window at which clearing / compaction starts. |
+| `keep_recent` | 2 | Tool-result turns left intact when clearing. |
+| `max_compactions`, `compact_min_history_tokens` | 3, 3000 | Compaction budget per run; the least history worth summarizing. |
+
+How a request is sized: the provider's reported total input tokens of the last call, plus the
+approximate tokens (characters / 4) of the messages appended since. The first request is the prefix plus
+the alert, estimated from characters (JSON schemas at 2.5 characters per token; 7.8k estimated against
+8.2k reported). Everything else is an estimate, so the window is a simulation and not a hard provider
+limit.
+
+- **Cap.** A result over the cap is cut at a line boundary and ends with a note: what was cut (characters
+  and tokens), that the rest is unavailable, and how to narrow the request. The tool_result event gets
+  `truncated_by_harness: true` and a `truncate` context event is logged. The step log's `content` is the
+  text the model saw, so a truncated value is not citable, as it should be. The tools already cap at
+  12,000 characters server side, so this is defense in depth and does not fire today.
+- **No management, window set.** If the next request is estimated over the window, the run ends with
+  `terminated_reason=budget` and a synthesized inconclusive report that says the context window was
+  exhausted. This is the control arm.
+- **`clear`.** Past `clear_threshold`, the content of tool results older than the last `keep_recent`
+  turns becomes one line: `[ref cN] <tool>: <first line of the result> (cleared to save context; full
+  result still citable by ref)`. Only the result's text changes: every `tool_use` still has its
+  `tool_result`, assistant turns and their reasoning state are untouched, and `submit_report` and memory
+  results are never cleared. Results where the stub would not be smaller are left alone. Cleared results
+  stay cleared (a stub is not re-expanded), so clearing happens in batches when the threshold is crossed,
+  not every turn. A `clear` event logs how many results and tokens were freed and the estimate before
+  and after.
+- **`compact`.** Past `compact_threshold`, one extra model call (same client, **no tools**, its own short
+  system prompt) receives the history as a plain-text transcript and writes structured notes: decisions,
+  findings with exact values and refs, ruled-out hypotheses, open questions, key identifiers. The history
+  becomes the original alert plus one user message holding those notes under a header that says they are
+  data, that cited refs remain valid evidence and that numbering continues. The call counts as a step and
+  in tokens and cost, and is logged as a `model_call` with `purpose: "compaction"` plus a `compact` event
+  (tokens before and after, messages before and after). The summarizer is told never to copy
+  instruction-like text from tool results, because the notes come back as a *user* message, which would
+  otherwise promote injected telemetry text to the trust level of the user. Compaction is skipped in favor
+  of clearing when the summary call fails or returns nothing, when there is too little history to be
+  worth summarizing, when the prefix alone is so close to the threshold that a summary could not get under
+  it (the 8.2k fixed prefix is most of a 13k window, so this matters in the simulation), and after
+  `max_compactions`.
+- **Refs stay valid.** Every tool result keeps its `[ref cN]`, ref numbering is never reset, and the step
+  log is written from the full result before any clearing. The anti-fabrication scorer reads results from
+  the step log, so a report that cites a ref whose result was cleared, or one that only survives in the
+  summary, still grounds if the cited values match the original result. The cost of getting this wrong is
+  the model copying a value from the summary imperfectly, which the grounding check will catch.
+- **Reasoning state.** Reasoning blocks ride in `Message.provider_data` and are echoed only for the
+  assistant turn they belong to. Clearing does not touch assistant turns. Compaction drops every assistant
+  turn, which is safe for both providers' formats because the replacement history contains no assistant
+  turn at all, so no reasoning block can be orphaned (Anthropic only requires them within a tool-use
+  turn). The summary call is a separate request with no reasoning state.
+- **Caching.** The system prompt and tool definitions are never modified by any mechanism, so the
+  cacheable prefix (tools, system) keeps hitting. Anything after the first changed message does not:
+  clearing rewrites an old tool result, so the next request reads the cache up to just before that
+  message and pays the cache-write price again for everything after it. That is the price of the tokens
+  saved, and it is paid once per clearing batch, which is why clearing is thresholded rather than rolling.
+  Compaction replaces everything after the alert, so only the prefix and the alert are read from cache and
+  the notes plus later turns are written fresh. The summary call has a different system prompt and no
+  tools, so it reads nothing from the main cache and pays full input price for the whole transcript.
+  Whether clearing or compaction is a net saving on a given bill is an empirical question that the cache
+  columns in the step log can answer; at this project's scale (a $0.025 investigation) it may well not be.
+- **Limits of this design.** The thresholds are shares of a window, so a fixed 8.2k prefix makes small
+  windows awkward: at 13k, 60% is already below the prefix. Clearing can only free tool-result text (a few
+  thousand tokens in these runs; assistant text and reasoning are 40% of per-turn growth and are not
+  touched). Compaction relies on the model's notes being complete and exact; the test checks that the
+  harness delivers the facts and keeps refs gradable, not that a real model summarizes well.
 
 ## Evaluation
 

@@ -63,6 +63,8 @@ Notes:
   run statistics, and writes a step log to `runs/adhoc/`.
 - `eval` appends an entry to `docs/eval-results.md` by default; pass `--no-report` to only print.
   `uv run incident-agent eval` with no options runs all 13 scenarios, 3 runs each.
+- Context management is opt-in: `--context-mode clear|compact --max-context-tokens N` simulates a
+  window of N tokens per call (see [Context management](docs/architecture.md#context-management)).
 - Model access is [OpenRouter](https://openrouter.ai) by default (`anthropic/claude-sonnet-5.5`).
   To call Anthropic directly set `MODEL_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, and
   `MODEL_ID=claude-sonnet-5-5`. See [.env.example](.env.example).
@@ -226,15 +228,18 @@ Model spend is capped in several independent layers:
   factual notes starting with a verb can be rejected. Memory is opt-in and not exposed on the CLI yet.
 - **Category ambiguity.** A fault can fit two categories (a memory leak is `resource_exhaustion` and
   shows up as `latency`), so category scoring depends on one label per scenario.
-- **No context compaction.** The harness keeps an append-only history; stale-result clearing and
-  summarization are not implemented, and the longest scenario is the only one that stresses it.
+- **Context management is built but unproven.** No run has needed it (4 to 6 model calls, requests up to
+  about 16k tokens), so clearing and compaction are opt-in (`--context-mode`, `--max-context-tokens`) and
+  can only be evaluated under a simulated small window. The one default-on piece is a per-result size
+  cap. See [docs/architecture.md](docs/architecture.md#context-management).
 - **One model at a time.** There is no cross-model comparison; run-to-run variance is recorded, not removed.
 
 ## Future work
 
 - Run one scenario live against Honeycomb and record a short demo.
 - Memory evals: a benefit pair, a seeded stale-memory harm case, an isolation check, and a CLI flag.
-- Context management (result clearing, compaction) added only where a measured failure motivates it.
+- Run the constrained-window eval of context management (clear vs compact vs none) and record it; a
+  measured failure on a real long investigation would still be the better motivation.
 - More scenarios on a second application, and an LLM judge only for rubric items code cannot check.
 - The production hardening in [docs/architecture.md](docs/architecture.md).
 
