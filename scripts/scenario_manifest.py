@@ -25,8 +25,7 @@ SPEC_FIELDS = (
     "notes",
 )
 
-# Sample rates the finaliser may escalate through to stay inside the size budget. Planted
-# (injection) traces are chosen to survive every one of them.
+# Sample rates the finaliser may escalate through to stay inside the size budget.
 SAMPLE_RATE_LADDER = (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64)
 
 

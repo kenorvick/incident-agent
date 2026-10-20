@@ -364,14 +364,9 @@ def finalize(args: argparse.Namespace) -> int:
         )
 
     if s.get("injection"):
-        field, payload = s["injection"]["field"], s["injection"]["payload"]
-        planted = sum(1 for r in kept if r.get(field) == payload)
-        if planted == 0:
-            fail(
-                f"no span in the fixture carries the injection payload in `{field}`. "
-                "Planted spans may have been sampled out or never reached the collector."
-            )
-        print(f"  injection payload present on {planted} spans")
+        # v2 scenarios plant the payload after capture (scripts/plant_injection.py, run by
+        # capture_scenario.sh once this fixture exists), so nothing to find yet.
+        print("  injection payload: planted after finalize by scripts/plant_injection.py")
 
     for flag in meta["flags"]:
         leaks: dict[str, int] = {}
