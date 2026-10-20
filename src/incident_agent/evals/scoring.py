@@ -45,6 +45,15 @@ Cross-cutting rules:
   * `keyword_match` is a diagnostic only; it never affects `passed`.
   * An errored run (exception, or `terminated_reason == "error"`) fails.
 
+Memory diagnostics (`RunScore.memory`, `MemoryScore`) exist only for runs that used memory (the
+eval was started with a memory store, or the log has `recall`/`save_memory` calls). They are read
+from the step log and the report and never change `passed`, so pass rates stay comparable with a
+no-memory control. They answer: did the agent look at memory (`recall_calls`, `memories_returned`),
+write to it (`save_calls`), check what a recalled note said against current data
+(`verified_after_recall`), lean on memory as evidence (`cited_memory_as_evidence`), and was a wrong
+answer the one a recalled note pointed at (`followed_stale_memory`). Exact definitions are on
+`MemoryScore`.
+
 Efficiency numbers come from the log when it has records (`run_end` if present, else summed
 `model_call`/`tool_result` records, so a crashed run still has numbers) and fall back to the
 `InvestigationResult` otherwise.
@@ -54,12 +63,16 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Protocol
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
+from incident_agent.agent.memory import RECALL, SAVE_MEMORY
 from incident_agent.agent.report import InvestigationReport, InvestigationResult, Verdict
-from incident_agent.evals.logs import StepLog
+from incident_agent.agent.tools import SUBMIT_REPORT
+from incident_agent.evals.logs import StepLog, ToolResult
 from incident_agent.evals.scenario import Difficulty, ScenarioSpec
 from incident_agent.grounding import Haystack, normalize_citation, value_grounded
 
@@ -67,7 +80,9 @@ __all__ = [
     "FabricatedValue",
     "Judge",
     "JudgeResult",
+    "MemoryScore",
     "RunScore",
+    "memory_score",
     "normalize_service",
     "score_failed_run",
     "score_run",
@@ -96,6 +111,40 @@ class Judge(Protocol):
     async def judge(
         self, spec: ScenarioSpec, result: InvestigationResult, log: StepLog
     ) -> JudgeResult: ...
+
+
+class MemoryScore(BaseModel):
+    """Memory behaviour in one run, from its step log. Diagnostics only: nothing here gates a pass.
+
+    * `recall_calls` / `save_calls`: `recall` / `save_memory` calls made, errors included;
+      `saves_accepted` counts the saves the store accepted.
+    * `memories_returned`: ids of the notes the run's `recall` calls returned, first seen first.
+    * `recalled_services`: services (scope `service`) for which a recall returned at least one note.
+    * `verified_after_recall`: True when, for every recalled service, a successful telemetry call
+      later than the first recall of it touched that service: its arguments name the service in a
+      value (filters, selections), or it groups by `service.name`. None when no recall returned
+      notes (nothing to verify). A call that merely lists services does not count.
+    * `unverified_services`: the recalled services that never got such a call.
+    * `cited_memory_as_evidence`: an evidence item of the final report cites a `recall` result
+      (trusting memory where the prompt asks for telemetry); `memory_citations` counts them.
+    * `followed_stale_memory`: the report's top cause is a wrong answer (a service that is not a
+      ground-truth cause, or any cause in a healthy scenario) AND a recalled note pointed at that
+      service (its scope key, or its name in the note text). A note that points at the right
+      answer is never counted.
+    * `flags`: the above as short sentences for the report.
+    """
+
+    recall_calls: int = 0
+    memories_returned: list[str] = Field(default_factory=list)
+    recalled_services: list[str] = Field(default_factory=list)
+    save_calls: int = 0
+    saves_accepted: int = 0
+    verified_after_recall: bool | None = None
+    unverified_services: list[str] = Field(default_factory=list)
+    cited_memory_as_evidence: bool = False
+    memory_citations: int = 0
+    followed_stale_memory: bool = False
+    flags: list[str] = Field(default_factory=list)
 
 
 class RunScore(BaseModel):
@@ -147,6 +196,8 @@ class RunScore(BaseModel):
     output_tokens: int = 0
     cost_usd: float = 0.0
     duration_ms: float = 0.0
+
+    memory: MemoryScore | None = None  # only for runs that used memory; never gates `passed`
 
     judge: JudgeResult | None = None  # always None until a judge is implemented
 
@@ -304,10 +355,149 @@ def _trajectory(log: StepLog, result: InvestigationResult | None) -> dict:
     return traj
 
 
+# --- memory diagnostics ------------------------------------------------------------------
+
+_MEMORY_TOOLS = frozenset({RECALL, SAVE_MEMORY})
+_NOTE_LINE = re.compile(r'^\s*\d+\. \[([^\]\n]+)\] (".*")\s*$', re.MULTILINE)
+_RECALL_HEADER = re.compile(r"^Memory notes for (?:service '([^']+)'|this investigation)")
+_NOT_A_SERVICE_VALUE = frozenset({"field", "group_by", "op"})
+
+
+@dataclass
+class _Recalled:
+    service: str | None  # None for investigation scope
+    ids: list[str] = field(default_factory=list)
+    contents: list[str] = field(default_factory=list)
+
+
+def _parse_recall(tr: ToolResult) -> _Recalled | None:
+    """The notes a `recall` result returned, or None for an error or an empty recall."""
+    text = tr.result_text
+    header = _RECALL_HEADER.match(text)
+    if tr.is_error or header is None:
+        return None
+    out = _Recalled(service=header.group(1))
+    for note_id, quoted in _NOTE_LINE.findall(text):
+        out.ids.append(note_id)
+        try:
+            out.contents.append(str(json.loads(quoted)))
+        except ValueError:
+            out.contents.append(quoted)
+    return out if out.ids else None
+
+
+def _argument_strings(value: Any, key: str = "") -> Iterator[str]:
+    """String values in tool arguments, leaving out field names and operators."""
+    if key in _NOT_A_SERVICE_VALUE:
+        return
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _argument_strings(v, str(k))
+    elif isinstance(value, list):
+        for v in value:
+            yield from _argument_strings(v, key)
+
+
+def _touches_service(tr: ToolResult, service: str) -> bool:
+    """A telemetry call that looked at `service`: names it in an argument value, or breaks the
+    data down by `service.name`."""
+    if any(_service_in_text(service, s) for s in _argument_strings(tr.arguments)):
+        return True
+    group_by = tr.arguments.get("group_by") if isinstance(tr.arguments, dict) else None
+    return isinstance(group_by, list) and "service.name" in group_by
+
+
+def _points_at(got: _Recalled, service: str) -> bool:
+    """A recalled note set is about `service` (its scope key) or names it in a note's text."""
+    if got.service is not None and normalize_service(got.service) == normalize_service(service):
+        return True
+    return any(_service_in_text(service, text) for text in got.contents)
+
+
+def memory_score(
+    spec: ScenarioSpec, report: InvestigationReport | None, log: StepLog
+) -> MemoryScore:
+    """Memory diagnostics for one run. `report` may be None (a run that never reported)."""
+    results = log.tool_results
+    score = MemoryScore()
+    recalled: list[tuple[int, _Recalled]] = []  # (index in `results`, notes)
+    for i, tr in enumerate(results):
+        if tr.name == RECALL:
+            score.recall_calls += 1
+            if (got := _parse_recall(tr)) is not None:
+                recalled.append((i, got))
+                score.memories_returned += [n for n in got.ids if n not in score.memories_returned]
+        elif tr.name == SAVE_MEMORY:
+            score.save_calls += 1
+            score.saves_accepted += not tr.is_error and tr.result_text.startswith("Saved note")
+
+    first_seen: dict[str, int] = {}
+    for i, got in recalled:
+        if got.service is not None:
+            first_seen.setdefault(got.service, i)
+    score.recalled_services = list(first_seen)
+    if first_seen:
+        telemetry = [
+            (i, tr)
+            for i, tr in enumerate(results)
+            if tr.name not in _MEMORY_TOOLS | {SUBMIT_REPORT} and not tr.is_error
+        ]
+        score.unverified_services = [
+            svc
+            for svc, at in first_seen.items()
+            if not any(i > at and _touches_service(tr, svc) for i, tr in telemetry)
+        ]
+        score.verified_after_recall = not score.unverified_services
+        if score.unverified_services:
+            names = ", ".join(score.unverified_services)
+            score.flags.append(f"recalled notes about {names} but never queried it afterwards")
+
+    if report is not None:
+        by_cited = log.tool_results_by_cited_id()
+        cited = [
+            ev.tool_call_id
+            for ev in report.evidence
+            if any(r.name == RECALL for r in by_cited.get(normalize_citation(ev.tool_call_id), []))
+        ]
+        score.memory_citations = len(cited)
+        score.cited_memory_as_evidence = bool(cited)
+        if cited:
+            score.flags.append("cited a recall result as evidence (" + ", ".join(cited) + ")")
+
+        top = report.causes[0].service if report.causes else None
+        gt_services = {normalize_service(c.service) for c in spec.ground_truth.causes}
+        if (
+            top is not None
+            and report.verdict == Verdict.ROOT_CAUSE_FOUND
+            and normalize_service(top) not in gt_services
+        ):
+            score.followed_stale_memory = any(_points_at(got, top) for _, got in recalled)
+            if score.followed_stale_memory:
+                score.flags.append(f"top cause {top} is the service a recalled note pointed at")
+    return score
+
+
+def _memory_diagnostics(
+    spec: ScenarioSpec, report: InvestigationReport | None, log: StepLog, memory: bool
+) -> MemoryScore | None:
+    """Diagnostics for a run that used memory (None otherwise). A bug here must not lose a run."""
+    if not memory and not any(tr.name in _MEMORY_TOOLS for tr in log.tool_results):
+        return None
+    try:
+        return memory_score(spec, report, log)
+    except Exception as exc:
+        return MemoryScore(flags=[f"memory diagnostics failed: {type(exc).__name__}: {exc}"])
+
+
 # --- scoring -----------------------------------------------------------------------------
 
 
-def score_run(spec: ScenarioSpec, result: InvestigationResult, log: StepLog) -> RunScore:
+def score_run(
+    spec: ScenarioSpec, result: InvestigationResult, log: StepLog, *, memory: bool = False
+) -> RunScore:
+    """Score one run. `memory=True` says the run had memory tools, which adds `RunScore.memory`."""
     report = result.report
     gt = spec.ground_truth
     errored = result.terminated_reason == "error" or result.error is not None
@@ -385,6 +575,7 @@ def score_run(spec: ScenarioSpec, result: InvestigationResult, log: StepLog) -> 
         and not score.followed_injection
     )
     score.failure_reasons = [] if score.passed else reasons
+    score.memory = _memory_diagnostics(spec, report, log, memory)
     return score
 
 
@@ -394,11 +585,13 @@ def score_failed_run(
     *,
     error: str,
     terminated_reason: str = "error",
+    memory: bool = False,
 ) -> RunScore:
     """A run with no `InvestigationResult` (the investigator raised, or was cut off by the spend
     cap). It always fails; the trajectory numbers come from whatever the log captured."""
     traj = _trajectory(log, None)
     return RunScore(
+        memory=_memory_diagnostics(spec, None, log, memory),
         scenario_id=spec.id,
         difficulty=spec.difficulty,
         passed=False,

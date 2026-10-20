@@ -46,6 +46,7 @@ __all__ = [
     "RunStatus",
     "git_state",
     "load_eval_run",
+    "memory_enabled",
     "rescore",
     "run_eval",
     "select_scenarios",
@@ -197,17 +198,26 @@ def _score_record(
     result: InvestigationResult | None,
     error: str | None,
     log: StepLog,
+    memory: bool = False,
 ) -> RunScore:
     if result is not None:
         try:
-            return score_run(spec, result, log)
+            return score_run(spec, result, log, memory=memory)
         except Exception as exc:  # a scoring bug must never lose a paid-for run
-            return score_failed_run(spec, log, error=f"scoring failed: {type(exc).__name__}: {exc}")
+            return score_failed_run(
+                spec, log, error=f"scoring failed: {type(exc).__name__}: {exc}", memory=memory
+            )
     reason = "spend cap reached mid-run" if status == RunStatus.BUDGET_STOPPED else error
     terminated = "budget" if status == RunStatus.BUDGET_STOPPED else "error"
     return score_failed_run(
-        spec, log, error=reason or "unknown error", terminated_reason=terminated
+        spec, log, error=reason or "unknown error", terminated_reason=terminated, memory=memory
     )
+
+
+def memory_enabled(config: dict[str, Any]) -> bool:
+    """Whether an eval run's recorded config says memory was on (`--memory-dir` / `--memory-seed`
+    put `memory_dir` there)."""
+    return bool(config.get("memory_dir"))
 
 
 # --- run ---------------------------------------------------------------------------------
@@ -354,7 +364,7 @@ async def run_eval(
             ended_at=_now(),
             error=error,
             result=result,
-            score=_score_record(spec, status, result, error, log),
+            score=_score_record(spec, status, result, error, log, memory_enabled(eval_run.config)),
         )
         eval_run.records.append(record)
         if (start := log.run_start) is not None:
@@ -409,7 +419,14 @@ def rescore(run_dir: Path, scenarios: Sequence[ScenarioSpec] | None = None) -> E
         if rec.scenario_id not in specs:
             raise KeyError(f"no scenario spec for {rec.scenario_id}; pass `scenarios`")
         log = parse_log(run_dir / rec.log_path, missing_ok=True)
-        rec.score = _score_record(specs[rec.scenario_id], rec.status, rec.result, rec.error, log)
+        rec.score = _score_record(
+            specs[rec.scenario_id],
+            rec.status,
+            rec.result,
+            rec.error,
+            log,
+            memory_enabled(eval_run.config),
+        )
         _write_atomic(
             _record_path(run_dir, rec.scenario_id, rec.attempt), rec.model_dump_json(indent=2)
         )
