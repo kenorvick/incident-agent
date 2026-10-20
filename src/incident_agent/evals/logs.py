@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 __all__ = [
+    "CitationCheck",
     "ContextEvent",
     "Final",
     "LogRecord",
@@ -118,6 +119,15 @@ class ContextEvent(LogRecord):
     details: Any = None
 
 
+class CitationCheck(LogRecord):
+    """One `submit_report` attempt checked by the harness's citation guardrail."""
+
+    attempt: int = 1
+    ok: bool = True
+    forced: bool = False  # accepted as it is after too many rejections
+    problems: list[dict[str, Any]] = []
+
+
 class Final(LogRecord):
     report: dict[str, Any] = {}
     terminated_reason: str | None = None
@@ -141,6 +151,7 @@ _BY_TYPE: dict[str, type[LogRecord]] = {
     "model_call": ModelCall,
     "tool_result": ToolResult,
     "context_event": ContextEvent,
+    "citation_check": CitationCheck,
     "final": Final,
     "run_end": RunEnd,
 }
@@ -173,6 +184,10 @@ class StepLog:
     @property
     def tool_results(self) -> list[ToolResult]:
         return [r for r in self.records if isinstance(r, ToolResult)]
+
+    @property
+    def citation_checks(self) -> list[CitationCheck]:
+        return [r for r in self.records if isinstance(r, CitationCheck)]
 
     @property
     def context_events(self) -> list[ContextEvent]:

@@ -163,3 +163,76 @@ async def test_mcp_executor_describes_empty_and_non_text_results():
         "t", {}
     )
     assert "image" in out
+
+
+# --- citation verification (production guardrail) -------------------------------------------
+
+RESULT = "services: checkout error_rate 45.2% count 1,234\nstatus_message: Invalid token"
+
+
+def cite(ref, *values, claim="a claim"):
+    return {"claim": claim, "tool_call_id": ref, "cited_values": list(values)}
+
+
+def checking(**kwargs):
+    events = []
+    tool = SubmitReportTool(verify_citations=True, on_check=events.append, **kwargs)
+    tool.note_result("c1", RESULT)
+    tool.note_result("c2", "p95_ms 1203.4 for POST /api/checkout")
+    return tool, events
+
+
+async def test_verified_citations_are_accepted():
+    tool, events = checking()
+    evidence = [cite("c1", "45.2%", "Invalid token"), cite("[ref c2]", "1203.4")]
+    text, is_error = await tool.call(report_args(evidence=evidence))
+    assert not is_error and tool.report is not None
+    assert [(e["attempt"], e["ok"], e["forced"]) for e in events] == [(1, True, False)]
+
+
+async def test_unverified_value_is_rejected_with_where_it_was_found():
+    tool, events = checking()
+    evidence = [cite("c1", "45.2%", "1203.4"), cite("c2", "checkout error_rate 45.2%")]
+    text, is_error = await tool.call(report_args(evidence=evidence))
+    assert is_error and tool.report is None
+    assert "'1203.4' does not appear in the result of `c1`" in text and "appear in: c2" in text
+    assert "'checkout error_rate 45.2%' does not appear in the result of `c2`" in text
+    assert "45.2%'" not in text.split("c1`")[0]  # verified values are not listed as problems
+    assert "Refs you have: c1, c2" in text and "1 more rejection(s)" in text
+    assert events[0]["ok"] is False and len(events[0]["problems"]) == 2
+
+
+async def test_unknown_ref_is_rejected_even_without_values():
+    tool, _ = checking()
+    text, is_error = await tool.call(report_args(evidence=[cite("c9"), cite("toolu_01abc")]))
+    assert is_error and "`c9` is not a tool call you made" in text and "`toolu_01abc`" in text
+
+
+async def test_third_submission_is_accepted_as_it_is_and_logged_as_forced():
+    tool, events = checking(max_citation_rejections=2)
+    bad = report_args(evidence=[cite("c1", "99.9%")])
+    for _ in range(2):
+        _, is_error = await tool.call(bad)
+        assert is_error and tool.report is None
+    text, is_error = await tool.call(bad)
+    assert not is_error and tool.report is not None and "submitted" in text
+    assert [(e["attempt"], e["ok"], e["forced"]) for e in events] == [
+        (1, False, False),
+        (2, False, False),
+        (3, False, True),
+    ]
+
+
+async def test_zero_allowed_rejections_never_blocks():
+    tool, events = checking(max_citation_rejections=0)
+    _, is_error = await tool.call(report_args(evidence=[cite("c1", "99.9%")]))
+    assert not is_error and events[0]["forced"] is True
+
+
+async def test_verification_is_off_by_default_and_no_evidence_always_passes():
+    tool = SubmitReportTool()
+    _, is_error = await tool.call(report_args(evidence=[cite("whatever", "nope")]))
+    assert not is_error
+    tool, _ = checking()
+    _, is_error = await tool.call(report_args(evidence=[]))
+    assert not is_error

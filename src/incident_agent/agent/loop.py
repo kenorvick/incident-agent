@@ -63,6 +63,13 @@ class AgentConfig(BaseModel):
     max_cost_usd: float | None = Field(default=0.75, description="Spend for this investigation.")
     timeout_seconds: float | None = Field(default=300.0, description="Wall-clock limit.")
     max_tokens: int = Field(default=16_000, description="Per response, reasoning included.")
+    verify_citations: bool = Field(
+        default=True,
+        description="`submit_report` rejects citations not found in the cited tool result.",
+    )
+    max_citation_rejections: int = Field(
+        default=2, ge=0, description="Rejected submissions before one is accepted as it is."
+    )
 
 
 async def investigate(
@@ -78,8 +85,12 @@ async def investigate(
     """Investigate `alert` with `tools` until a report is submitted or a limit is hit."""
     config = config or AgentConfig()
     started = time.monotonic()
-    submit = SubmitReportTool()
     with StepLogger(log_path) as log:
+        submit = SubmitReportTool(
+            verify_citations=config.verify_citations,
+            max_citation_rejections=config.max_citation_rejections,
+            on_check=log.citation_check,
+        )
         run = _Run(config, CompositeToolExecutor([submit], tools), model, submit, log)
         log.run_start(
             run_id=run_id,
@@ -215,6 +226,8 @@ class _Run:
         for i, (call, (text, is_error, latency_ms)) in enumerate(zip(calls, outputs, strict=True)):
             ref = call_ref(self.tool_calls + i + 1)  # memory's ToolCallLedger counts the same way
             shown = with_ref(ref, text)
+            if call.name != SUBMIT_REPORT:
+                self.submit.note_result(ref, text)
             self.log.tool_result(
                 step=self.steps,
                 tool_call_id=call.id,

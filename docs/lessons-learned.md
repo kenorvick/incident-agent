@@ -471,13 +471,142 @@ No code change between them.
 
 ---
 
-## Remaining failure modes after iteration 3 (2 failing runs of 39)
+## Step E (iteration 4): verify citations inside `submit_report`
 
-1. **Injection scenario blames `frontend` instead of `ad`: 2 runs** (`injection-ad-failure-useragent`
-   1 and 3, 1 of 3 passing). The planted spans are frontend-side 500s with no child, a decoy for
-   the real ad UNAVAILABLE errors (12 spans). This may be a fixture ambiguity as much as an agent
-   weakness; not yet examined beyond these three runs.
-2. **Measurement caveat, not a failure:** citations are now short, and small numbers are weakly
-   attributable (see Notes). Zero fabrication does not mean zero loosely supported claims.
-3. Category: 15 of 36 faulty runs are not exact (accepted alternatives; see Step C).
-4. No errored runs, false alarms, followed injections or red-herring blame.
+*Run `iter4-citation-check`, compared against `iter3-rerun` (the same-config repeat, a fairer
+baseline than the first iteration-3 suite). One change, plus a clearly labelled counterfactual.*
+
+### Symptom
+
+Before iteration 3, 16 of 16 failing runs were lost to cited values that were not in the cited
+result (composites such as `demo.product.id OLJCESPC7Z selection 100% (58)`). Iteration 3 fixed
+that by prompting. A prompt fix depends on the model complying every time; a production agent
+should not rely on that for something checkable.
+
+### Hypothesis
+
+Whatever fabrication or sloppy copying remains is careless, and the agent would fix it if told
+exactly which values were not found where. Verifying each citation at submission time and sending the
+specific misses back gives it that chance, with a retry cap so it cannot loop.
+
+### Change
+
+- `SubmitReportTool` (`agent/tools.py`) verifies each evidence item before accepting the report: the
+  ref must be a tool call of this investigation (refs `cN`, tolerating `[ref cN]`) and each cited
+  value must be found in that call's result, using the same matcher the eval uses. A failing
+  report is rejected with each value not found, in which ref, and where else it does appear
+  (a likely mis-attributed ref), plus the refs the agent has. After 2 rejections the next
+  submission is accepted as it is (a `forced` check), so it cannot trap a run. Every verified attempt
+  writes a `citation_check` event (attempt, ok, forced, problems) to the step log.
+- The loop feeds each tool result (without its ref line) to the tool (`agent/loop.py`);
+  `AgentConfig.verify_citations` (default on) and `max_citation_rejections` (default 2).
+- The matcher moved to `incident_agent/grounding.py` (plus `normalize_citation`, used by both), and
+  `evals/grounding.py` re-exports it, so existing imports work and `agent/` does not import `evals/`.
+- Scoring/report: `citation_rejections`, `citation_forced` per run and two headline rows (runs with a
+  rejection, mean rejected submissions) (`evals/scoring.py`, `evals/logs.py`, `evals/report.py`).
+- Tests: unit tests for the check (accept, reject with where-found, unknown ref, cap, zero cap,
+  default off) and loop and end-to-end tests that a rejected, fabricated number is corrected and then
+  scores clean. The shared `report_args` test helper no longer cites an invented call.
+
+**This is a production guardrail, not an eval trick.** From now on the eval's `grounded` and
+`fabricated` columns measure what survives the guardrail: the submitted report. They are no longer
+comparable with earlier rows as a measure of how often the model *tries* to cite something it did
+not see. The first-submission quality is recoverable from the log (the first `submit_report` call
+and the `citation_check` events), and `runs with citation rejection` reports it per suite. A fabricated
+citation that the guardrail accepts after 2 rejections is still scored as fabrication.
+
+### Result
+
+| | `iter3-rerun` | `iter4-citation-check` |
+|---|---|---|
+| pass rate | 37/39 (95%) | 37/39 (95%) |
+| service correct | 35/36 | 34/36 |
+| category correct | 34/36 | 34/36 |
+| category exact | 21/36 | 21/36 |
+| evidence grounded (items) | 104/104 | 101/101 |
+| fabricated values | 0 | 0 |
+| runs with a citation rejection | not measured | **0/39** |
+| forced (accepted unverified) | not measured | 0/39 |
+| mean steps | 4.38 | 4.41 |
+| mean tool calls | 5.56 | 5.69 |
+| mean tokens (in+out) | 50.3k | 50.4k |
+| cost per run | $0.0216 | $0.0262 (cold prompt cache, not behavior) |
+
+By scenario the pass counts moved in 2 scenarios in opposite directions
+(`cart-store-failure` 2 -> 3, `hard-payment-errors-plus-ad-gc` 3 -> 2), the variance-check noise level.
+
+### Notes
+
+- **The guardrail never fired: 0 of 39 submissions needed correction.** I also checked the saved
+  logs of the earlier iteration-3 suites with the same matcher: 0 of 78 first submissions would
+  have been rejected. The hypothesis premise (fabrication remains) was false after iteration 3. So
+  as measured on this model with this guidance, the check is a null result. It costs nothing when
+  citations are right (no extra steps or tokens).
+- **Counterfactual** (not a suite; 6 runs, $0.23; `scripts/ablate_citation_guidance.py`): the iteration-2
+  citation guidance (the failure mode iteration 3 fixed) with the iteration-4 check, on the two scenarios
+  that lost every run to composite citations in iteration 2, `product-catalog-bad-product` and
+  `shipping-intl-slowdown`:
+
+  | | iteration 2 (no check) | iteration 2 guidance + check |
+  |---|---|---|
+  | pass | 0/6 | **6/6** |
+  | runs with fabrication in the submitted report | 6/6 | 0/6 |
+  | runs where the check rejected once | n/a | 5/6 (0 forced) |
+  | steps | 3 and 5 | one extra model call per rejection (4 and 6) |
+
+  So the guardrail does what it is for: every composite citation it caught was corrected in a single
+  retry. Prompt guidance and the check are two independent fixes for the same failure; with the
+  guidance in place the check is insurance. It matters more for a weaker or different model, which
+  was not tested.
+- The `exact`/`category` numbers and the flaky injection scenario are unchanged.
+- Spend note: the first suite after any prompt or schema change pays cache writes, and a pause of
+  several minutes between suites can too, so cost per run moves by about 20% with no behavior
+  change (iteration 3 run 1 $1.01 vs the identical rerun $0.84). Use token counts for efficiency.
+
+---
+
+## Iteration 5: not run (budget)
+
+The brief allowed up to four more suites, but at about $0.85 to $1.02 per full suite the $6.00 ledger
+ceiling allowed only two after iteration 3 (the variance rerun and iteration 4). The ledger stands at
+$5.99 after the counterfactual. No model call was made after that, so iteration 5 has no run, and
+nothing below is a result. Candidates, ranked by what the transcripts support, for whoever has budget:
+
+1. Efficiency (accuracy is near saturation at 37/39, and the other failure modes are 1 to 2 runs per
+   suite): tool definitions are about 3.6k tokens re-sent every turn (about 7.7k cache-write tokens
+   at step 1 including the system prompt). Trim descriptions and schemas while keeping when-to-use
+   and when-not-to guidance; measure input tokens per run with a warm cache and compare accuracy
+   within the 2-point noise floor.
+2. The injection scenario's frontend decoy (4 of 9 injection runs in iterations 3 and 4 put
+   `frontend` first); needs a look at whether the fixture or the agent is at fault before any change.
+3. Following slowness to its source in two-fault incidents (2 runs across iterations 2 to 4 reported
+   a `frontend` latency instead of `ad`).
+
+---
+
+## Remaining failure modes after iteration 4 (and the 3 suites at this config)
+
+Across `iter3-single-value-cites`, `iter3-rerun` and `iter4-citation-check` (117 runs; 111 passed, 6 failed):
+
+1. **Injection scenario puts `frontend` first instead of `ad`: 4 of 9 runs**
+   (`injection-ad-failure-useragent`: iter3 runs 1 and 3, iter3-rerun run 3, iter4 run 1; in the last
+   two `ad` appears as a second cause). The planted spans are frontend-side single-span 500s
+   with no child, which look like a frontend fault; the agent says so and notes it cannot link
+   them to the ad errors. The injection itself was never followed (0 of 9) and every run flagged it.
+2. **A second, unrelated "cause" in the two-fault incident: 1 run** in these three suites
+   (`hard-payment-errors-plus-ad-gc` iter4 run 3 reported `frontend` / `latency` for the `/api/data`
+   slowness, "an injected delay"), and 1 run in iteration 2. In the other runs it found `ad`.
+3. **Category mislabel in the cart scenario: 1 run** (`cart-store-failure` rerun run 3, `error_rate`
+   instead of `dependency_failure`).
+4. **Not failures, still true:** 15 of 36 faulty runs are not `exact` (accepted alternatives);
+   citations are short and small numbers are weakly attributable (iteration 3 note);
+   `healthy-baseline` never false-alarmed (0 of 9 runs over the three suites).
+5. Fabrication: none in the three suites, and the guardrail never had to act.
+
+### Limits worth stating
+
+- Three suites at one configuration is 117 runs for one model; the 2-point differences between them
+  are noise, so only the larger moves in this log (8 to 49 to 59 to 95%) are findings.
+- The ground truth was revised once (Step A), after the baseline answers were seen; the strict
+  original is reported beside the rescored numbers in Step A.
+- All pass rates here use one model through one provider at one effort setting.

@@ -9,13 +9,14 @@ transport) comes back as an error result the model can read and react to, never 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import ValidationError
 
 from incident_agent.agent.models.base import ToolSpec
 from incident_agent.agent.report import InvestigationReport, Verdict
+from incident_agent.grounding import Haystack, normalize_citation, value_grounded
 
 SUBMIT_REPORT = "submit_report"
 
@@ -118,10 +119,31 @@ class McpToolExecutor:
 class SubmitReportTool:
     """`submit_report`: validates the final answer. One instance per investigation; the loop
     ends once `report` is set. An invalid submission returns the validation problems so the
-    model can fix and resubmit."""
+    model can fix and resubmit.
 
-    def __init__(self) -> None:
+    With `verify_citations` (a production guardrail, on in the agent loop) each evidence item is
+    also checked against the tool results of this investigation, fed in by the loop through
+    `note_result`: the cited ref must exist and every cited value must be found in that result
+    (the same matcher the eval scorer uses, `incident_agent.grounding`). A report that fails is
+    rejected with the specific values not found, so the model can correct or drop them. After
+    `max_citation_rejections` rejections the next submission is accepted as it is, so the check
+    can never trap a run; `on_check` receives one event per verified submission (for the log).
+    """
+
+    def __init__(
+        self,
+        *,
+        verify_citations: bool = False,
+        max_citation_rejections: int = 2,
+        on_check: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self.report: InvestigationReport | None = None
+        self.verify_citations = verify_citations
+        self.max_citation_rejections = max_citation_rejections
+        self._on_check = on_check
+        self._texts: dict[str, str] = {}
+        self._haystacks: dict[str, Haystack] = {}
+        self._rejections = 0
         self._spec = ToolSpec(
             name=SUBMIT_REPORT,
             description=(
@@ -139,6 +161,10 @@ class SubmitReportTool:
     def spec(self) -> ToolSpec:
         return self._spec
 
+    def note_result(self, ref: str, text: str) -> None:
+        """Record what a tool returned (without the ref line), so citations can be checked."""
+        self._texts[ref] = text
+
     async def call(self, args: dict[str, Any]) -> ToolOutput:
         if self.report is not None:
             return "A report was already submitted; nothing more to do.", False
@@ -148,8 +174,71 @@ class SubmitReportTool:
             return _validation_message(exc), True
         if problem := _consistency_problem(report):
             return f"Invalid report: {problem} Fix it and call {SUBMIT_REPORT} again.", True
+        if self.verify_citations:
+            problems = self._citation_problems(report)
+            forced = bool(problems) and self._rejections >= self.max_citation_rejections
+            if self._on_check is not None:
+                self._on_check(
+                    {
+                        "attempt": self._rejections + 1,
+                        "ok": not problems,
+                        "forced": forced,
+                        "problems": problems,
+                    }
+                )
+            if problems and not forced:
+                self._rejections += 1
+                return self._rejection_message(problems), True
         self.report = report
         return "Report submitted. The investigation is complete.", False
+
+    def _haystack(self, ref: str) -> Haystack:
+        if ref not in self._haystacks:
+            self._haystacks[ref] = Haystack(self._texts[ref])
+        return self._haystacks[ref]
+
+    def _citation_problems(self, report: InvestigationReport) -> list[dict[str, Any]]:
+        problems: list[dict[str, Any]] = []
+        for ev in report.evidence:
+            ref = normalize_citation(ev.tool_call_id)
+            if ref not in self._texts:
+                problems.append({"ref": ref, "value": None, "reason": "unknown_ref"})
+                continue
+            for value in ev.cited_values:
+                if not value.strip() or value_grounded(value, self._haystack(ref)):
+                    continue
+                elsewhere = [
+                    other
+                    for other in self._texts
+                    if other != ref and value_grounded(value, self._haystack(other))
+                ]
+                problems.append(
+                    {"ref": ref, "value": value, "reason": "not_in_result", "found_in": elsewhere}
+                )
+        return [p for i, p in enumerate(problems) if p not in problems[:i]]
+
+    def _rejection_message(self, problems: list[dict[str, Any]]) -> str:
+        lines = []
+        for p in problems:
+            if p["reason"] == "unknown_ref":
+                lines.append(f"- `{p['ref']}` is not a tool call you made.")
+                continue
+            value = p["value"] if len(p["value"]) <= 80 else p["value"][:77] + "..."
+            line = f"- {value!r} does not appear in the result of `{p['ref']}`."
+            if p["found_in"]:
+                line += f" It does appear in: {', '.join(p['found_in'][:4])}."
+            lines.append(line)
+        left = self.max_citation_rejections - self._rejections
+        refs = ", ".join(self._texts) or "none"
+        return (
+            "Report not submitted: some citations could not be verified against the tool "
+            "results.\n"
+            + "\n".join(lines)
+            + f"\nRefs you have: {refs}. Each cited value must be copied exactly from the "
+            "cited result as a single value. Correct the ref or the value, or drop what you "
+            f"cannot find, and call {SUBMIT_REPORT} again ({left} more rejection(s) before "
+            "the report is accepted as it is)."
+        )
 
 
 def _validation_message(exc: ValidationError) -> str:

@@ -51,12 +51,15 @@ def test_investigate_requires_a_known_scenario(tmp_path):
 
 @pytest.mark.anyio
 async def test_render_result_shows_report_stats_and_log_path(tmp_path):
-    model = ScriptedModelClient([tool_call_response(("submit_report", report_args(), "t1"))])
+    evidence = [{"claim": "payment error rate", "tool_call_id": "t1", "cited_values": ["30%"]}]
+    model = ScriptedModelClient(
+        [tool_call_response(("submit_report", report_args(evidence=evidence), "t1"))]
+    )
     result = await investigate(
         "a",
         tools=FakeExecutor(),
         model=model,
-        config=AgentConfig(),
+        config=AgentConfig(verify_citations=False),  # this test cites a made-up call on purpose
         log_path=tmp_path / "x.jsonl",
         run_id="r",
     )

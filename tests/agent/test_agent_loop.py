@@ -370,3 +370,30 @@ def test_cited_values_guidance_asks_for_one_verbatim_value_each():
     text = props["cited_values"]["description"]
     assert "ONE value" in text and "Good:" in text and "Bad:" in text
     assert "single value" in load_system_prompt()
+
+
+async def test_loop_feeds_results_to_the_citation_check_and_the_model_can_fix_its_report(tmp_path):
+    bad = [{"claim": "services", "tool_call_id": "c1", "cited_values": ["payment", "checkout 30"]}]
+    good = [{"claim": "services", "tool_call_id": "c1", "cited_values": ["payment"]}]
+    model = ScriptedModelClient(
+        [
+            tool_call_response(("describe_dataset", {}, "t1")),
+            tool_call_response(("submit_report", report_args(evidence=bad), "s1")),
+            tool_call_response(("submit_report", report_args(evidence=good), "s2")),
+        ]
+    )
+    result = await run(model, FakeExecutor(), tmp_path)
+    assert result.terminated_reason == TerminatedReason.SUBMITTED and result.steps == 3
+    rejection = model.requests[2].tool_results[0]
+    assert rejection.is_error and "'checkout 30' does not appear in the result of `c1`" in (
+        rejection.content
+    )
+    checks = [e for e in read_log(tmp_path / "run.jsonl") if e["type"] == "citation_check"]
+    assert [(c["attempt"], c["ok"]) for c in checks] == [(1, False), (2, True)]
+
+
+async def test_citation_check_can_be_switched_off(tmp_path):
+    bad = [{"claim": "services", "tool_call_id": "c7", "cited_values": ["nope"]}]
+    model = ScriptedModelClient([tool_call_response(("submit_report", report_args(evidence=bad)))])
+    result = await run(model, FakeExecutor(), tmp_path, verify_citations=False)
+    assert result.terminated_reason == TerminatedReason.SUBMITTED

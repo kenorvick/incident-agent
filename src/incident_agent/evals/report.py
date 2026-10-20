@@ -9,7 +9,9 @@ runs cut off by the spend cap are not attempts and are listed separately); means
 completed runs only; `grounded` is pooled across runs (evidence items grounded / evidence items
 cited); `category` counts the primary label or an accepted alternative and `exact` the primary
 label only (`-` for runs scored before that field existed); `fab` is the number of
-runs with any fabricated value or unknown tool_call_id.
+runs with any fabricated value or unknown tool_call_id in the *submitted* report. Since the
+agent's `submit_report` verifies citations (production guardrail), `fab` measures what survives
+it; `runs with citation rejection` counts how many runs needed a correction.
 """
 
 from __future__ import annotations
@@ -157,6 +159,13 @@ def _headline(run: EvalRun) -> dict[str, float | None]:
     )
     metrics["evidence grounded"] = _rate(sum(s.evidence_grounded for s in stats), ev_total)
     metrics["runs with fabrication"] = _rate(sum(s.fabricated_runs for s in stats), scored)
+    metrics["runs with citation rejection"] = _rate(
+        sum(r.score.citation_rejections > 0 or r.score.citation_forced for r in run.scored_records),
+        scored,
+    )
+    metrics["mean rejected submissions per run"] = _mean(
+        [r.score.citation_rejections for r in done]
+    )
     metrics["errored runs"] = _rate(sum(s.errored for s in stats), scored)
     metrics["mean steps"] = _mean([r.score.steps for r in done])
     metrics["mean tool calls"] = _mean([r.score.tool_calls for r in done])

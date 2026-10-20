@@ -49,13 +49,7 @@ def report_args(**overrides: Any) -> dict[str, Any]:
                 "summary": "adyen calls time out",
             }
         ],
-        "evidence": [
-            {
-                "claim": "payment error rate is 30%",
-                "tool_call_id": "t1",
-                "cited_values": ["30%"],
-            }
-        ],
+        "evidence": [],  # citations are verified against real results; tests add their own
         "confidence": "high",
         "uncertainties": [],
     }

@@ -119,6 +119,11 @@ class StepLogger:
     def context_event(self, kind: Literal["truncate", "clear", "compact"], details: Any) -> None:
         self._write("context_event", kind=kind, details=details)
 
+    def citation_check(self, event: dict[str, Any]) -> None:
+        """One verified `submit_report` attempt: attempt number, ok, forced (accepted as is after
+        too many rejections) and the unverifiable citations."""
+        self._write("citation_check", **event)
+
     def final(self, report: dict[str, Any], terminated_reason: str) -> None:
         self._write("final", report=report, terminated_reason=terminated_reason)
 

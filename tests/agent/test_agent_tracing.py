@@ -42,6 +42,7 @@ async def test_log_has_every_event_with_the_contract_fields(tmp_path):
         "model_call",
         "tool_result",
         "model_call",
+        "citation_check",  # one per verified submit_report attempt
         "tool_result",
         "final",
         "run_end",
@@ -70,7 +71,7 @@ async def test_log_has_every_event_with_the_contract_fields(tmp_path):
     assert tool["truncated_by_harness"] is False and "latency_ms" in tool
 
     # submit_report is logged like any other tool, with the harness's reply as its content
-    assert events[4]["name"] == "submit_report" and "submitted" in events[4]["content"]
+    assert events[5]["name"] == "submit_report" and "submitted" in events[5]["content"]
 
     final, end = events[-2:]
     assert final["terminated_reason"] == "submitted"

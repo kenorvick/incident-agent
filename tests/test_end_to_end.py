@@ -57,9 +57,10 @@ class ScriptedInvestigator:
     """Behaves like a competent agent: describe, rank services by error rate, drill into the
     worst one's errors, then submit a report citing ids and values from the real results."""
 
-    def __init__(self, *, fabricate: bool = False) -> None:
+    def __init__(self, *, fabricate: bool = False, fix_after_rejection: bool = False) -> None:
         self.fabricate = fabricate
-        self.ids: dict[str, str] = {}  # step name -> tool_call_id
+        self.fix_after_rejection = fix_after_rejection
+        self.ids: dict[str, str] = {}  # step name -> ref (`c1`, ...) the harness shows
         self.worst = ""
         self.worst_rate = ""
         self.error_count = ""
@@ -70,9 +71,14 @@ class ScriptedInvestigator:
         if step == 0:
             return tool_call_response(("describe_dataset", {}), text="Looking at the data.")
         result = request.tool_results[0]
+        if step == 4 and self.fix_after_rejection:  # the citation check rejected step 3's report
+            assert result.is_error and "99.9%" in result.content, result.content
+            assert "does not appear" in result.content
+            self.fabricate = False
+            return tool_call_response(("submit_report", self.report()))
         assert not result.is_error, result.content
         if step == 1:
-            self.ids["describe"] = result.tool_use_id
+            self.ids["describe"] = "c1"
             assert "services (events):" in result.content
             return tool_call_response(
                 (
@@ -86,7 +92,7 @@ class ScriptedInvestigator:
                 )
             )
         if step == 2:
-            self.ids["query"] = result.tool_use_id
+            self.ids["query"] = "c2"
             # first data row under the header: `<service>  <error_rate>  <count>`
             row = re.search(r"^service\.name .*\n(\S+)\s+(\S+)\s+\d+$", result.content, re.M)
             self.worst, self.worst_rate = row.group(1), row.group(2)
@@ -102,7 +108,7 @@ class ScriptedInvestigator:
                 )
             )
         if step == 3:
-            self.ids["outliers"] = result.tool_use_id
+            self.ids["outliers"] = "c3"
             self.error_count = re.search(r"-> (\d+) events", result.content).group(1)
             if m := re.search(r"^\s+(\S+=\S+)\s*$", result.content, re.MULTILINE):
                 self.separator = m.group(1)  # e.g. a "perfect separator" like error.type=Error
@@ -241,6 +247,7 @@ async def test_cited_values_really_come_from_tool_results(tmp_path):
 @pytest.mark.anyio
 async def test_fabricated_number_is_scored_as_fabrication(tmp_path):
     investigator = make_investigator(
+        AgentConfig(verify_citations=False),  # without the guardrail the eval sees the fabrication
         model_factory=_factory(lambda: ScriptedInvestigator(fabricate=True)),
         fixtures_dir=default_fixtures_dir(),
     )
@@ -255,6 +262,30 @@ async def test_fabricated_number_is_scored_as_fabrication(tmp_path):
     assert [(f.value, f.reason) for f in s.fabricated_values] == [("99.9%", "not_in_result")]
     assert any("fabricated" in r for r in s.failure_reasons)
     assert "fabricated" in render_entry(run)
+
+
+@pytest.mark.anyio
+async def test_citation_check_rejects_a_fabricated_number_and_the_fix_scores_clean(tmp_path):
+    investigator = make_investigator(
+        model_factory=_factory(
+            lambda: ScriptedInvestigator(fabricate=True, fix_after_rejection=True)
+        ),
+        fixtures_dir=default_fixtures_dir(),
+    )
+    run = await run_eval(
+        [_spec()], investigator, runs_per_scenario=1, run_id="chk", runs_dir=tmp_path / "runs"
+    )
+    (rec,) = run.records
+    s = rec.score
+    assert rec.result.terminated_reason == "submitted" and rec.result.steps == 5
+    assert s.passed and s.fabrication_free
+    assert s.citation_rejections == 1 and not s.citation_forced
+    log = parse_log(tmp_path / "runs" / "chk" / rec.log_path)
+    assert [(c.attempt, c.ok, c.forced) for c in log.citation_checks] == [
+        (1, False, False),
+        (2, True, False),
+    ]
+    assert log.citation_checks[0].problems[0]["value"] == "99.9%"
 
 
 @pytest.mark.anyio

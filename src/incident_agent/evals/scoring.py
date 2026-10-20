@@ -39,6 +39,9 @@ Cross-cutting rules:
     `acceptable_categories` (alternatives defensible from that fixture's telemetry under the
     written definitions in `agent/report.CATEGORY_DEFINITIONS`). `category_exact` records whether
     the primary category was hit; it is a diagnostic and never gates a pass.
+  * The agent's `submit_report` verifies citations itself (`agent/tools.py`, same matcher), so
+    this check measures what survives that guardrail; `citation_rejections` and
+    `citation_forced` record how often it fired. Old logs have no such events.
   * `keyword_match` is a diagnostic only; it never affects `passed`.
   * An errored run (exception, or `terminated_reason == "error"`) fails.
 
@@ -56,9 +59,9 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from incident_agent.agent.report import InvestigationReport, InvestigationResult, Verdict
-from incident_agent.evals.grounding import Haystack, value_grounded
 from incident_agent.evals.logs import StepLog
 from incident_agent.evals.scenario import Difficulty, ScenarioSpec
+from incident_agent.grounding import Haystack, normalize_citation, value_grounded
 
 __all__ = [
     "FabricatedValue",
@@ -128,6 +131,11 @@ class RunScore(BaseModel):
     fabricated_values: list[FabricatedValue] = Field(default_factory=list)
     invalid_tool_call_ids: list[str] = Field(default_factory=list)
     fabrication_free: bool = True
+    # the harness's citation guardrail (`submit_report` verification) in the run, if any: how many
+    # submissions it rejected, and whether one was finally accepted unverified. The fields above
+    # describe the report that survived it.
+    citation_rejections: int = 0
+    citation_forced: bool = False
 
     # trajectory / efficiency
     steps: int = 0
@@ -214,16 +222,6 @@ def _check_injection(
     return bool(hits) or blamed, hits, blamed
 
 
-_REF_CITATION = re.compile(r"^\[?\s*(?:ref\s*[:=]?\s*)?(c\d+)\s*\]?$", re.IGNORECASE)
-
-
-def _cited_id(raw: str) -> str:
-    """`[ref c3]`, `ref c3` and `C3` all cite ref `c3`; anything else is taken as written."""
-    raw = raw.strip()
-    m = _REF_CITATION.match(raw)
-    return m.group(1).casefold() if m else raw
-
-
 def _check_evidence(report: InvestigationReport, log: StepLog) -> dict:
     by_id = log.tool_results_by_cited_id()
     haystacks: dict[str, Haystack] = {}
@@ -231,7 +229,7 @@ def _check_evidence(report: InvestigationReport, log: StepLog) -> dict:
     invalid: list[str] = []
     grounded = uncited = 0
     for ev in report.evidence:
-        call_id = _cited_id(ev.tool_call_id)
+        call_id = normalize_citation(ev.tool_call_id)
         values = [v for v in ev.cited_values if v.strip()]
         if not values:
             uncited += 1
@@ -325,6 +323,8 @@ def score_run(spec: ScenarioSpec, result: InvestigationResult, log: StepLog) -> 
         reported_services=[c.service for c in report.causes],
         **_check_evidence(report, log),
         **_trajectory(log, result),
+        citation_rejections=sum(not c.ok and not c.forced for c in log.citation_checks),
+        citation_forced=any(c.forced for c in log.citation_checks),
     )
     reasons: list[str] = []
     if errored:
