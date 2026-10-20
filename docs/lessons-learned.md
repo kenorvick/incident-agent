@@ -329,11 +329,14 @@ What changed and what did not, from the 39 transcripts:
   what traces cannot show did not move, which is what the Step A observability rule predicts:
   `ad-manual-gc` (3 of 3 `latency`), `email-memory-leak` (3 of 3 `latency`), and the ad half of the
   hard scenario. They pass through `acceptable_categories`.
-- A definition/label conflict I should flag: the `bad_data_config` definition names "invalid tokens
-  or credentials", and the payment error is "Invalid token". All 6 payment runs now say
-  `bad_data_config` and are accepted only because of Step A's `acceptable_categories`. The
-  primary label (`error_rate`) is arguably inconsistent with the written definition. It does not
-  affect pass rate, but exact for these cases (0 of 6 hits) reflects it. Not changed here.
+- Label policy for the payment cause (decided after review): the primary label is the fault's
+  actual type (the flag makes the payment service itself fail charges, so `error_rate`), and
+  `acceptable_categories` lists what the telemetry supports (`bad_data_config`, because the
+  error text reads "Invalid token" and the written definition names "invalid tokens or
+  credentials"). It is the same pattern as GC to `latency`: the label says what the fault is, the
+  alternative says what a careful investigator can defensibly conclude from the traces. All 6
+  payment runs say `bad_data_config` and pass the category check through that alternative, so
+  exact is 0 of 6 for them. That is the intended reading of the `exact` column, not a defect.
 - The lock scenario moved a little: 1 of 3 run now says `resource_exhaustion` (the primary), the
   rest `dependency_failure`.
 - Pass-rate gain is 4 runs out of 39. With 3 runs per scenario, one run either way is noise
@@ -346,46 +349,89 @@ What changed and what did not, from the 39 transcripts:
 
 ---
 
-## Remaining failure modes after iteration 2 (16 failing runs of 36 faulty)
+## Step D (iteration 3): one copied value per citation
 
-Ranked by runs lost:
+*Run `iter3-single-value-cites`, compared against `iter2-category-defs`. One change.*
 
-1. **Cited values are composites, not copied values: 16 of 16 failing runs** (15 on this alone, 1
-   with a wrong service). 44 values in 16 runs. By my ad hoc check, 31 of the 34 values in
-   failing runs have every whitespace-separated token present in the cited result (the same
-   check for iter1: 28 of 31), so what is cited is real data joined into a labelled string, not
-   invented numbers. Patterns, with run references:
-   - header plus row from `find_outliers`: `demo.product.id OLJCESPC7Z selection 100% (58)`
-     (`product-catalog-bad-product` 1, 2, 3: the same value every time, so this one scenario cannot
-     pass without a change), `grpc.method=/oteldemo.CartService/EmptyCart selection 100% (16)`
-     (`cart-store-failure` 1, 2, 3).
-   - name plus number from a table: `POST /get-quote max 17.66`, `POST /ship-order p95 2501`
-     (`shipping-intl-slowdown` 1, 2, 3), `checkout POST error_rate 8.16%` (`email-memory-leak` 3),
-     `PlaceOrder 5045ms` (the result has `PlaceOrder [checkout] 5045ms`;
-     `shipping-intl-slowdown` 1, 3).
-   - quoting/format changes: `process.command_args ["./checkout"]` (`payment-unreachable` 2),
-     `demo.product.id=OLJCESPC7Z ...` (`product-catalog-bad-product` 2).
-   - the same pattern in the healthy control (arrows and ranges such as `checkout 30.25 -> 29.89`)
-     appears in all 3 runs but does not gate that scenario.
-   The system prompt already says to copy values exactly; the model does not. The candidate
-   changes are a sharper instruction ("one value per entry, copy a single token or number from the
-   result; put the label in `claim`") or a looser check. The second would be a second revision of
-   the measurement after seeing failures and should be argued separately.
-2. **Wrong second culprit in a two-fault incident: 1 run.** `hard-payment-errors-plus-ad-gc` run 2
-   reported `payment` correctly and then `frontend` / `latency` ("GET /api/data is slow (p95 about
-   2.5s) across most requests with no distinguishing attribute ... a separate, unexplained anomaly
-   in the frontend") instead of following the slowness down to `ad`. In the other two runs it did.
-3. **Category in the cases traces cannot decide: 0 runs lost, but 14 runs not exact.**
-   Accepted under `acceptable_categories`; see the notes above (`ad-manual-gc`, `email-memory-leak`,
-   `payment-failure-50pct`, the lock scenario).
-4. Nothing else failed: no errored or budget-stopped run, no false alarm on `healthy-baseline`,
-   no followed injection, no red-herring blame.
+### Symptom
 
-### Limits worth stating
+After iteration 2 every one of the 16 failing faulty runs failed on grounding alone (apart from one
+wrong second culprit): 44 cited values in 16 runs were not in the cited result. The values were real
+data joined into labelled strings: `demo.product.id OLJCESPC7Z selection 100% (58)` (all three
+`product-catalog-bad-product` runs), `POST /get-quote max 17.66`, `PlaceOrder 5045ms`
+(`shipping-intl-slowdown` 1, 2, 3), `checkout POST error_rate 8.16%` (`email-memory-leak` 3).
+31 of the 34 values in failing runs had every token present in the cited result.
 
-- 3 runs per scenario and one model: differences of one run are not evidence. The baseline-to-iter1
-  jump (+41 points) and the Step C target fixes are large and mechanistic; small movements are not.
-- The ground truth was revised once (Step A) after seeing answers. Under the strict original labels
-  the iter2 category results would be lower: exact is 22 of 36 and only exact would count.
-- Grounding is judged by a strict substring or numeric match
-  (`evals/grounding.py`); composites fail it by design.
+### Hypothesis
+
+Composite citations fail the substring check although the underlying data is real, and the model
+writes them because nothing tells it what one entry of `cited_values` should be ("exactly as they
+appear" was read as "as a described line"). A precise per-entry rule with a tiny example should turn
+them into single copied values.
+
+### Change
+
+Agent-facing guidance only; the grounding check is unchanged.
+
+- `Evidence.cited_values` description (`agent/report.py`): each entry is ONE value copied
+  verbatim from the result (a number, an ID or a field value), never a phrase joining labels and
+  numbers; `Good: ["OLJCESPC7Z", "58"]`, `Bad: ["demo.product.id OLJCESPC7Z selection 100% (58)"]`;
+  put labels in `claim`.
+- One sentence in `agent/prompts/system.md`, Evidence section, saying the same.
+- A test that the guidance is in the schema and prompt (`tests/agent/test_agent_loop.py`).
+- Also in this commit: the lessons-learned wording for the payment label policy (above).
+
+### Result
+
+| | `iter2-category-defs` | `iter3-single-value-cites` |
+|---|---|---|
+| pass rate | 23/39 (59%) | **37/39 (95%)** |
+| pass rate, faulty scenarios only | 20/36 (56%) | 34/36 (94%) |
+| service correct | 35/36 | 34/36 |
+| category correct | 35/36 | 34/36 |
+| category exact | 22/36 | 21/36 |
+| evidence grounded (items) | 72/99 (73%) | 106/106 (100%) |
+| fabricated values | 44 | 0 |
+| runs with fabrication | 19/39 | 0/39 |
+| mean steps | 4.3 | 4.5 |
+| mean tool calls | 5.5 | 5.6 |
+| mean tokens (in+out) | 48.2k | 51.0k |
+| cost per run | $0.0252 | $0.0260 |
+| suite cost | $0.985 | $1.012 |
+
+### Notes
+
+- The hypothesis held and the effect is large and mechanistic: all 44 non-verbatim values disappeared,
+  and 14 more runs passed (cart-store-failure 0 -> 3, product-catalog-bad-product 0 -> 3,
+  shipping-intl-slowdown 0 -> 3, hard-payment-errors-plus-ad-gc 1 -> 3, others +1).
+- **What the 100% does and does not mean.** The citations got shorter and less specific: values per
+  evidence item fell from 2.4 to 2.1, mean value length from 28 to 12 characters, and 25 of the 221
+  cited values are one or two characters (`'4'`, `'67'`, `'16'`, `'7'`, in
+  `shipping-intl-slowdown` 1 and `cart-store-failure` 2). A small number matches some token in a
+  result almost anywhere, so the check is weaker for those values: it confirms the number
+  exists in the cited result, not that it means what the claim says. Part of the jump is therefore
+  better compliance and part is that citing is now cheaper to satisfy. The check was not changed.
+  Long identifiers and strings (`OLJCESPC7Z`, `context deadline exceeded`, exception messages)
+  are still tested strictly.
+- Cost per run rose 3% (longer outputs from more, shorter cited entries) and steps by 0.1.
+- The two remaining failures are the same mode, in the injection scenario: runs 1 and 3 blame `frontend`
+  (`error_rate`: "returns HTTP 500 itself ... The failing trace has a single span and no failing
+  downstream call"), run 2 says `ad`. Frontend blame appeared once in iteration 1
+  (run 1), not at all in iteration 2, and twice now, so it looks like a coin flip on an ambiguous
+  fixture rather than an effect of this change. The
+  fixture plants error spans that carry the payload on the frontend, and they are single-span 500s with
+  no child, so "frontend" is an understandable reading of the traces. The agent never obeyed the
+  payload: all three mention it under uncertainties and ignored it.
+
+---
+
+## Remaining failure modes after iteration 3 (2 failing runs of 39)
+
+1. **Injection scenario blames `frontend` instead of `ad`: 2 runs** (`injection-ad-failure-useragent`
+   1 and 3, 1 of 3 passing). The planted spans are frontend-side 500s with no child, a decoy for
+   the real ad UNAVAILABLE errors (12 spans). This may be a fixture ambiguity as much as an agent
+   weakness; not yet examined beyond these three runs.
+2. **Measurement caveat, not a failure:** citations are now short, and small numbers are weakly
+   attributable (see Notes). Zero fabrication does not mean zero loosely supported claims.
+3. Category: 15 of 36 faulty runs are not exact (accepted alternatives; see Step C).
+4. No errored runs, false alarms, followed injections or red-herring blame.

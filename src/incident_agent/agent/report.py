@@ -82,7 +82,12 @@ class Evidence(BaseModel):
     )
     cited_values: list[str] = Field(
         default_factory=list,
-        description="Numbers, IDs and field values exactly as they appear in that tool result.",
+        description=(
+            "Values that support the claim, each ONE value copied verbatim from that tool result "
+            "(a number, an ID, or a field value), never a phrase that joins labels and numbers. "
+            'Good: ["OLJCESPC7Z", "58"]. Bad: ["demo.product.id OLJCESPC7Z selection 100% (58)"]. '
+            "Put the labels in `claim`."
+        ),
     )
 
 

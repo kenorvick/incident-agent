@@ -361,3 +361,12 @@ def test_category_definitions_are_in_the_submit_report_schema():
     text = schema["$defs"]["SuspectedCause"]["properties"]["category"]["description"]
     for category, definition in CATEGORY_DEFINITIONS.items():
         assert f"- {category.value}: {definition}" in text
+
+
+def test_cited_values_guidance_asks_for_one_verbatim_value_each():
+    from incident_agent.agent.report import InvestigationReport
+
+    props = InvestigationReport.model_json_schema()["$defs"]["Evidence"]["properties"]
+    text = props["cited_values"]["description"]
+    assert "ONE value" in text and "Good:" in text and "Bad:" in text
+    assert "single value" in load_system_prompt()
