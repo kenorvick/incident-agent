@@ -121,8 +121,8 @@ async def test_parallel_tool_calls_run_concurrently_and_results_keep_order(tmp_p
     assert result.terminated_reason == TerminatedReason.SUBMITTED
     results = model.requests[1].tool_results
     assert [(r.tool_use_id, r.content) for r in results] == [
-        ("ta", "slow result"),
-        ("tb", "fast result"),
+        ("ta", "[ref c1]\nslow result"),
+        ("tb", "[ref c2]\nfast result"),
     ]
     assert sorted(started) == ["fast", "slow"]
     logged = [
@@ -312,3 +312,52 @@ async def test_system_prompt_is_stable_across_runs(tmp_path):
     await run(b, tmp_path=tmp_path)
     assert a.requests[0].system == b.requests[0].system
     assert ALERT not in a.requests[0].system
+
+
+async def test_every_result_starts_with_a_sequential_ref_in_call_order(tmp_path):
+    model = ScriptedModelClient(
+        [
+            tool_call_response(
+                ("describe_dataset", {}, "toolu_a"), ("missing_tool", {}, "toolu_b")
+            ),
+            tool_call_response(("describe_dataset", {}, "toolu_c")),
+            submit(),
+        ]
+    )
+    result = await run(model, FakeExecutor(), tmp_path)
+    assert result.terminated_reason == TerminatedReason.SUBMITTED
+
+    seen = [
+        (r.tool_use_id, r.content.splitlines()[0])
+        for request in model.requests[1:]
+        for r in request.tool_results
+    ]
+    assert seen[:3] == [("toolu_a", "[ref c1]"), ("toolu_b", "[ref c2]"), ("toolu_c", "[ref c3]")]
+    events = [e for e in read_log(tmp_path / "run.jsonl") if e["type"] == "tool_result"]
+    assert [(e["tool_call_id"], e["ref"]) for e in events] == [
+        ("toolu_a", "c1"),
+        ("toolu_b", "c2"),
+        ("toolu_c", "c3"),
+        ("sub", "c4"),
+    ]
+    assert events[0]["content"] == "[ref c1]\nservices: checkout, payment"
+    assert events[1]["is_error"] and events[1]["content"].startswith("[ref c2]\nUnknown tool")
+
+
+def test_evidence_schema_tells_the_model_to_cite_the_ref():
+    from incident_agent.agent.report import InvestigationReport
+
+    schema = InvestigationReport.model_json_schema()
+    text = schema["$defs"]["Evidence"]["properties"]["tool_call_id"]["description"]
+    assert "[ref cN]" in text and "c3" in text
+
+
+def test_category_definitions_are_in_the_submit_report_schema():
+    from incident_agent.agent.report import CATEGORY_DEFINITIONS, CauseCategory
+    from incident_agent.agent.tools import SubmitReportTool
+
+    assert set(CATEGORY_DEFINITIONS) == set(CauseCategory)
+    schema = SubmitReportTool().spec.input_schema
+    text = schema["$defs"]["SuspectedCause"]["properties"]["category"]["description"]
+    for category, definition in CATEGORY_DEFINITIONS.items():
+        assert f"- {category.value}: {definition}" in text

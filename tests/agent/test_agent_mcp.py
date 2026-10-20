@@ -80,7 +80,7 @@ async def test_investigation_through_a_real_mcp_session(tmp_path):
     assert "group_by" in schema["properties"]
 
     r1, r2, r3, r4 = model.requests[1].tool_results
-    assert (r1.content, r1.is_error) == ("services: checkout, payment", False)
+    assert (r1.content, r1.is_error) == ("[ref c1]\nservices: checkout, payment", False)
     assert "payment=12 checkout=30" in r2.content and not r2.is_error
     assert r3.is_error and "did you mean `service.name`" in r3.content
     assert r4.is_error  # an invalid call is an error result, not a crash

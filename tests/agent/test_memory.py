@@ -187,7 +187,7 @@ async def test_unknown_tool_call_id_rejected_with_guidance(store):
     text, err = await save.call(save_args(source="toolu_made_up"))
     assert err
     assert "not a telemetry tool call from this investigation" in text
-    assert "t1, t2" in text  # offers the real ids
+    assert "c1, c2" in text  # offers the refs the model can see
     assert store.all_notes() == []
 
 
@@ -480,3 +480,31 @@ def test_memory_config_per_run_copy_keeps_runs_apart(tmp_path, clock):
     assert "checkout is fine" in contents and any("0.3%" in c for c in contents)
     assert "written during run 1" not in {n.content for n in base.all_notes()}
     assert run1.directory == tmp_path / "runs" / "1.memory"
+
+
+async def test_source_can_be_a_ref_and_is_stored_as_the_real_call_id(store):
+    save, _ = tools(store, ledger_with("toolu_x", "toolu_y"))
+    text, err = await save.call(save_args(source="c2"))
+    assert not err, text
+    (note,) = store.all_notes()
+    assert note.source == "run1/toolu_y"
+    _, err = await save.call(save_args(content="another fact about checkout", source="c3"))
+    assert err  # no such call yet
+    _, err = await save.call(save_args(content="a third fact about checkout", source="C1"))
+    assert not err  # refs are case-insensitive
+
+
+def test_ledger_refs_count_every_call_including_excluded_ones():
+    ledger = ToolCallLedger()
+    ledger.stage(
+        [
+            ToolUseBlock(id="a", name="run_query", input={}),
+            ToolUseBlock(id="b", name="recall", input={}),
+        ]
+    )
+    ledger.commit()
+    ledger.stage([ToolUseBlock(id="c", name="run_query", input={})])
+    ledger.commit()
+    assert ledger.resolve("c1") == "a" and ledger.resolve("c3") == "c"
+    assert ledger.resolve("c2") is None  # recall is not citable, but it did use up c2
+    assert ledger.recent() == ["c1", "c3"]

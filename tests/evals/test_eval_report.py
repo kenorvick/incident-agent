@@ -56,7 +56,7 @@ async def test_render_entry_has_everything_the_plan_asks_for(tmp_path):
     assert "**Cost:** $0.3000 total, $0.0200 per run" in md
     assert "baseline, prompt v1" in md
     # per-scenario table
-    assert "| scenario | difficulty | runs | pass | service | category | grounded |" in md
+    assert "| scenario | difficulty | runs | pass | service | category | exact | grounded |" in md
     assert "| cart-errors | single | 3 | 1/3 | 1/3 | 1/3 |" in md
     assert "| checkout-latency | single | 3 | 2/3 | 2/3 | 2/3 |" in md
     assert "| healthy | negative | 3 | 3/3 |" in md and "false alarm 0/3" in md

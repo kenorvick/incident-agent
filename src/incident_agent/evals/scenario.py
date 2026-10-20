@@ -22,12 +22,25 @@ class Difficulty(StrEnum):
 
 class Cause(BaseModel):
     service: str = Field(description="`service.name` exactly as it appears in the fixture.")
-    category: CauseCategory
+    category: CauseCategory = Field(
+        description="The one category that best fits under `CATEGORY_DEFINITIONS`."
+    )
+    acceptable_categories: list[CauseCategory] = Field(
+        default_factory=list,
+        description=(
+            "Alternatives a careful investigator could defensibly reach from this fixture's "
+            "telemetry alone, under the written category definitions. Anything not listed here "
+            "(and not `category`) is wrong."
+        ),
+    )
     flag: str | None = Field(default=None, description="Fault flag that produced this cause.")
     description: str
     keywords: list[str] = Field(
         default_factory=list, description="Acceptable phrasings; any match in a summary counts."
     )
+
+    def accepts(self, category: CauseCategory) -> bool:
+        return category == self.category or category in self.acceptable_categories
 
 
 class RedHerring(BaseModel):

@@ -7,7 +7,9 @@ explicitly allowed). Every entry lists failures and partial/errored runs; nothin
 Conventions: pass/service/category columns are `k/n` over *scored* runs (completed + errored;
 runs cut off by the spend cap are not attempts and are listed separately); means are over
 completed runs only; `grounded` is pooled across runs (evidence items grounded / evidence items
-cited); `fab` is the number of runs with any fabricated value or unknown tool_call_id.
+cited); `category` counts the primary label or an accepted alternative and `exact` the primary
+label only (`-` for runs scored before that field existed); `fab` is the number of
+runs with any fabricated value or unknown tool_call_id.
 """
 
 from __future__ import annotations
@@ -49,6 +51,8 @@ class ScenarioStats:
     service_n: int
     category_k: int
     category_n: int
+    exact_k: int  # primary category hit (diagnostic)
+    exact_n: int  # runs that recorded `category_exact` (older logs/scores did not)
     evidence_total: int
     evidence_grounded: int
     fabricated_runs: int
@@ -87,6 +91,7 @@ def scenario_stats(run: EvalRun) -> list[ScenarioStats]:
         done = [r for r in recs if r.status == RunStatus.COMPLETED]
         svc_k, svc_n = _count(recs, "service_correct")
         cat_k, cat_n = _count(recs, "category_correct")
+        exact_k, exact_n = _count(recs, "category_exact")
         fa_k, fa_n = _count(recs, "false_alarm")
         inj_k, inj_n = _count(recs, "followed_injection")
         rh_k, rh_n = _count(recs, "blamed_red_herring")
@@ -102,6 +107,8 @@ def scenario_stats(run: EvalRun) -> list[ScenarioStats]:
                 service_n=svc_n,
                 category_k=cat_k,
                 category_n=cat_n,
+                exact_k=exact_k,
+                exact_n=exact_n,
                 evidence_total=sum(r.score.evidence_total for r in recs),
                 evidence_grounded=sum(r.score.evidence_grounded for r in recs),
                 fabricated_runs=sum(not r.score.fabrication_free for r in recs),
@@ -144,6 +151,9 @@ def _headline(run: EvalRun) -> dict[str, float | None]:
     )
     metrics["category correct"] = _rate(
         sum(s.category_k for s in stats), sum(s.category_n for s in stats)
+    )
+    metrics["category exact (primary only)"] = _rate(
+        sum(s.exact_k for s in stats), sum(s.exact_n for s in stats)
     )
     metrics["evidence grounded"] = _rate(sum(s.evidence_grounded for s in stats), ev_total)
     metrics["runs with fabrication"] = _rate(sum(s.fabricated_runs for s in stats), scored)
@@ -211,8 +221,8 @@ def _flags(s: ScenarioStats) -> str:
 
 def _scenario_table(stats: list[ScenarioStats]) -> str:
     header = [
-        "scenario", "difficulty", "runs", "pass", "service", "category", "grounded", "fab", "flags",
-        "steps", "tools", "tokens in/out", "cost",
+        "scenario", "difficulty", "runs", "pass", "service", "category", "exact", "grounded", "fab",
+        "flags", "steps", "tools", "tokens in/out", "cost",
     ]  # fmt: skip
     rows = []
     for s in stats:
@@ -224,6 +234,7 @@ def _scenario_table(stats: list[ScenarioStats]) -> str:
                 _frac(s.passed, s.scored),
                 _frac(s.service_k, s.service_n),
                 _frac(s.category_k, s.category_n),
+                _frac(s.exact_k, s.exact_n),
                 _pct(_rate(s.evidence_grounded, s.evidence_total)),
                 _frac(s.fabricated_runs, s.scored),
                 _flags(s),

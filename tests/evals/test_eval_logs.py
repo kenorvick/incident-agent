@@ -77,3 +77,23 @@ def test_result_fixture_roundtrip(tmp_path):
     lb.finish(report)
     path = lb.write(tmp_path / "1.jsonl")
     assert make_result(report, path).log_path == path
+
+
+def test_refs_are_parsed_and_stripped_from_the_result_text(tmp_path):
+    lb, a, b = standard_log(refs=True)
+    lb.finish(make_report())
+    log = parse_log(lb.write(tmp_path / "1.jsonl"))
+    first = log.tool_results[0]
+    assert (first.ref, first.tool_call_id) == ("c1", a)
+    assert first.content.startswith("[ref c1]\n") and not first.result_text.startswith("[ref")
+    by = log.tool_results_by_cited_id()
+    assert by["c2"] == by[b] and by["c1"][0].name == "get_service_overview"
+
+
+def test_logs_without_refs_resolve_by_id_only(tmp_path):
+    lb, a, b = standard_log()
+    lb.finish(make_report())
+    log = parse_log(lb.write(tmp_path / "1.jsonl"))
+    assert log.tool_results[0].ref == ""
+    assert log.tool_results[0].result_text == log.tool_results[0].content
+    assert set(log.tool_results_by_cited_id()) == {a, b}

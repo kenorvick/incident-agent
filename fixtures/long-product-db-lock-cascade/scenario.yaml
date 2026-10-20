@@ -8,11 +8,17 @@ ground_truth:
   healthy: false
   causes:
   - service: product-catalog
-    category: latency
+    category: resource_exhaustion
+    acceptable_categories:
+    - dependency_failure
     flag: productCatalogLockContention
     description: product-catalog periodically takes an ACCESS EXCLUSIVE lock on its products table for
       30 seconds, so its database queries block. Every caller of the catalog (frontend, recommendation,
       checkout) inherits the stall; after 15 s the proxy gives up with 504.
+      Category rationale. Lock contention on the datastore is named in the resource_exhaustion
+      definition and the LOCK TABLE catalog.products IN ACCESS EXCLUSIVE MODE query is visible in
+      the db spans (5 sampled spans in this fixture). dependency_failure is accepted because the
+      database calls time out.
     keywords:
     - product catalog
     - product-catalog

@@ -88,6 +88,26 @@ async def test_memory_round_trip_in_loop_with_logged_results(tmp_path):
     assert "source: r1/t1" in events["m2"]["content"]
 
 
+async def test_source_ref_in_loop_matches_the_ref_the_model_saw(tmp_path):
+    store = MemoryStore(tmp_path / "mem")
+    model = ScriptedModelClient(
+        [
+            tool_call_response(("describe_dataset", {}, "toolu_01")),
+            tool_call_response(("save_memory", {**SAVE, "source": "c1"}, "m1")),
+            submit(),
+        ]
+    )
+    tools, wrapped = enable_memory(
+        FakeExecutor(), model, store, run_id="r1", investigation_id="inv-1"
+    )
+    await run(wrapped, tools, tmp_path)
+
+    first = model.requests[1].tool_results[0]
+    assert first.content.startswith("[ref c1]\n")  # what the model was told to cite
+    (note,) = store.all_notes()
+    assert note.source == "r1/toolu_01"
+
+
 async def test_fabricated_and_same_turn_sources_are_rejected_in_loop(tmp_path):
     store = MemoryStore(tmp_path / "mem")
     model = ScriptedModelClient(
@@ -110,7 +130,7 @@ async def test_fabricated_and_same_turn_sources_are_rejected_in_loop(tmp_path):
         e["tool_call_id"]: e for e in read_log(tmp_path / "run.jsonl") if e["type"] == "tool_result"
     }
     assert results["m0"]["is_error"] and results["m1"]["is_error"]
-    assert "Recent ids" in results["m1"]["content"]
+    assert "Recent refs" in results["m1"]["content"]
     assert not results["m2"]["is_error"]
     assert len(store.all_notes()) == 1
 

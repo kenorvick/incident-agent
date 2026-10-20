@@ -36,6 +36,8 @@ from incident_agent.agent.tools import (
     CompositeToolExecutor,
     SubmitReportTool,
     ToolExecutor,
+    call_ref,
+    with_ref,
 )
 from incident_agent.agent.tracing import StepLogger
 
@@ -210,17 +212,20 @@ class _Run:
                 tg.start_soon(one, i, call)
 
         results = []
-        for call, (text, is_error, latency_ms) in zip(calls, outputs, strict=True):
+        for i, (call, (text, is_error, latency_ms)) in enumerate(zip(calls, outputs, strict=True)):
+            ref = call_ref(self.tool_calls + i + 1)  # memory's ToolCallLedger counts the same way
+            shown = with_ref(ref, text)
             self.log.tool_result(
                 step=self.steps,
                 tool_call_id=call.id,
+                ref=ref,
                 name=call.name,
                 arguments=call.input,
-                content=text,
+                content=shown,
                 is_error=is_error,
                 latency_ms=latency_ms,
             )
-            results.append(ToolResultBlock(tool_use_id=call.id, content=text, is_error=is_error))
+            results.append(ToolResultBlock(tool_use_id=call.id, content=shown, is_error=is_error))
         self.tool_calls += len(calls)
         self.messages.append(Message.tool_results(results))
 

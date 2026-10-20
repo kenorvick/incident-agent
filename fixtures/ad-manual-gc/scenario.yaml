@@ -8,10 +8,15 @@ ground_truth:
   causes:
   - service: ad
     category: resource_exhaustion
+    acceptable_categories:
+    - latency
     flag: adManualGc
     description: With the flag on, the ad service fills its heap and forces full garbage collections inside
       GetAds (at most once every 10 seconds). Because every request queues behind the collections, GetAds
       goes from about 1 ms to about 1 s at the median, with multi-second peaks.
+      Category rationale. The fixture holds traces only, no runtime metrics, so heap and GC pressure
+      are not observable. resource_exhaustion is the true mechanism; latency is accepted because
+      slow GetAds with no slow dependency is all the traces show.
     keywords:
     - ad
     - ad service

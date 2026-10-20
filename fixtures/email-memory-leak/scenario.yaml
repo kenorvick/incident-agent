@@ -8,10 +8,15 @@ ground_truth:
   causes:
   - service: email
     category: resource_exhaustion
+    acceptable_categories:
+    - latency
     flag: emailMemoryLeak
     description: The email service builds enormous confirmation bodies and keeps every delivery in memory.
       Sends get slow and the container hits its 100 MB limit, is killed and restarts, so calls from checkout
       fail or stall in cycles.
+      Category rationale. The fixture holds traces only, no runtime metrics, so the memory growth is
+      not observable. resource_exhaustion is the true mechanism; latency is accepted because slow
+      send_email spans are what the traces show.
     keywords:
     - email
     - memory leak

@@ -9,9 +9,14 @@ ground_truth:
   causes:
   - service: payment
     category: error_rate
+    acceptable_categories:
+    - bad_data_config
     flag: paymentFailure
     description: The payment service fails roughly 50% of Charge requests with an "Invalid token" error,
       which fails the order in checkout. Failing spans carry demo.user_context.loyalty_level=gold.
+      Category rationale. The error is raised inside the payment service with no failing downstream
+      call, so error_rate; bad_data_config is accepted because the error message itself reads
+      Invalid token.
     keywords:
     - payment
     - charge

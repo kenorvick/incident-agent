@@ -22,6 +22,18 @@ SUBMIT_REPORT = "submit_report"
 ToolOutput = tuple[str, bool]  # (text shown to the model, is_error)
 
 
+def call_ref(n: int) -> str:
+    """The short, citable reference of the n-th tool call (1-based, in call order, per
+    investigation). The provider's own tool-use IDs are opaque and never shown to the model as
+    text, so the harness gives each call this ref and puts it on the first line of the result."""
+    return f"c{n}"
+
+
+def with_ref(ref: str, text: str) -> str:
+    """A tool result as the model sees it: the ref line, then the tool's own output."""
+    return f"[ref {ref}]\n{text}"
+
+
 @runtime_checkable
 class ToolExecutor(Protocol):
     def list_tools(self) -> list[ToolSpec]: ...
@@ -115,9 +127,10 @@ class SubmitReportTool:
             description=(
                 "Submit the final investigation report. This is how you finish: call it exactly "
                 "once, when you have a conclusion (a root cause, no significant issue, or "
-                "inconclusive). Cite each piece of evidence by the ID of the tool call that "
-                "produced it, copying values exactly. Invalid reports are rejected with the "
-                "reasons; fix them and call it again."
+                "inconclusive). Cite each piece of evidence by the ref of the tool call that "
+                "produced it (the `[ref cN]` line at the top of its result), copying values "
+                "exactly. Invalid reports are rejected with the reasons; fix them and call it "
+                "again."
             ),
             input_schema=InvestigationReport.model_json_schema(),
         )

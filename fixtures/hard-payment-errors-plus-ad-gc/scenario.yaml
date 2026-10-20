@@ -8,8 +8,13 @@ ground_truth:
   causes:
   - service: payment
     category: error_rate
+    acceptable_categories:
+    - bad_data_config
     flag: paymentFailure
     description: The payment service fails about 25% of Charge requests with an "Invalid token" error.
+      Category rationale. The error is raised inside the payment service with no failing downstream
+      call, so error_rate; bad_data_config is accepted because the error message itself reads
+      Invalid token.
     keywords:
     - payment
     - charge
@@ -17,9 +22,14 @@ ground_truth:
     - payment failure
   - service: ad
     category: resource_exhaustion
+    acceptable_categories:
+    - latency
     flag: adManualGc
     description: The ad service forces full garbage collections inside GetAds, making it about a second
       slower per call.
+      Category rationale. The fixture holds traces only, no runtime metrics, so heap and GC pressure
+      are not observable. resource_exhaustion is the true mechanism; latency is accepted because
+      slow GetAds with no slow dependency is all the traces show.
     keywords:
     - ad
     - ad service

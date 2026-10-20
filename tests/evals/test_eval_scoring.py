@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from synthetic import (
     LogBuilder,
     cause,
@@ -64,6 +65,36 @@ def test_wrong_category_fails_but_service_counts():
     s = score(make_spec(), report, lb)
     assert not s.passed and s.service_correct is True and s.category_correct is False
     assert "wrong cause category" in s.failure_reasons
+
+
+def test_acceptable_category_passes_and_is_not_exact():
+    spec = make_spec(acceptable={"checkout": [Cat.RESOURCE_EXHAUSTION]})
+    report, lb = grounded_report(cause("checkout", Cat.RESOURCE_EXHAUSTION))
+    s = score(spec, report, lb)
+    assert s.passed and s.category_correct is True and s.category_fraction == 1.0
+    assert s.category_exact is False
+
+
+def test_primary_category_is_exact_even_when_alternatives_exist():
+    spec = make_spec(acceptable={"checkout": [Cat.RESOURCE_EXHAUSTION]})
+    report, lb = grounded_report(cause("checkout", Cat.LATENCY))
+    s = score(spec, report, lb)
+    assert s.passed and s.category_correct is True and s.category_exact is True
+
+
+def test_category_outside_primary_and_acceptable_fails():
+    spec = make_spec(acceptable={"checkout": [Cat.RESOURCE_EXHAUSTION]})
+    report, lb = grounded_report(cause("checkout", Cat.ERROR_RATE))
+    s = score(spec, report, lb)
+    assert not s.passed and s.category_correct is False and s.category_exact is False
+    assert "wrong cause category" in s.failure_reasons
+
+
+def test_acceptable_category_does_not_rescue_the_wrong_service():
+    spec = make_spec(acceptable={"checkout": [Cat.RESOURCE_EXHAUSTION]})
+    report, lb = grounded_report(cause("cart", Cat.RESOURCE_EXHAUSTION))
+    s = score(spec, report, lb)
+    assert not s.passed and s.category_correct is False and s.category_exact is False
 
 
 def test_single_cause_requires_the_top_cause_to_match():
@@ -132,6 +163,21 @@ def test_multi_cause_wrong_category_on_one_cause():
     assert not s.passed
     assert s.service_fraction == 1.0 and s.service_correct is True
     assert s.category_fraction == 0.5 and s.category_correct is False
+
+
+def test_multi_cause_acceptable_categories_apply_per_cause():
+    spec = make_spec(difficulty="hard", causes=MULTI, acceptable={"payment": [Cat.BAD_DATA_CONFIG]})
+    report, lb = grounded_report(
+        cause("payment", Cat.BAD_DATA_CONFIG), cause("checkout", Cat.LATENCY)
+    )
+    s = score(spec, report, lb)
+    assert s.passed and s.category_fraction == 1.0 and s.category_exact is False
+    # an alternative listed for one cause does not apply to the other
+    report, lb = grounded_report(
+        cause("payment", Cat.ERROR_RATE), cause("checkout", Cat.BAD_DATA_CONFIG)
+    )
+    s = score(spec, report, lb)
+    assert not s.passed and s.category_fraction == 0.5 and s.category_exact is False
 
 
 # --- negative control ----------------------------------------------------------------------
@@ -390,3 +436,72 @@ def test_score_failed_run_uses_partial_log():
 
 def test_judge_seam_is_unset():
     assert score(make_spec(), *grounded_report(cause("checkout", Cat.LATENCY))).judge is None
+
+
+# --- citing by ref -------------------------------------------------------------------------
+
+
+def ref_log():
+    lb, a, b = standard_log(refs=True)
+    return lb, a, b
+
+
+def ref_evidence(ref_a: str = "c1", ref_b: str = "c2") -> list[Evidence]:
+    ev = good_evidence("x", "y")
+    return [
+        ev[0].model_copy(update={"tool_call_id": ref_a}),
+        ev[1].model_copy(update={"tool_call_id": ref_b}),
+    ]
+
+
+def test_evidence_cited_by_ref_is_grounded():
+    lb, _, _ = ref_log()
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=ref_evidence())
+    s = score(make_spec(), report, lb)
+    assert s.passed and s.fabrication_free
+    assert s.evidence_total == 2 and s.evidence_grounded == 2 and s.invalid_tool_call_ids == []
+
+
+def test_evidence_cited_by_real_id_still_grounded_in_a_log_with_refs():
+    lb, a, b = ref_log()
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=good_evidence(a, b))
+    s = score(make_spec(), report, lb)
+    assert s.passed and s.evidence_grounded == 2
+
+
+@pytest.mark.parametrize("cited", ["[ref c1]", "ref c1", "C1", " c1 "])
+def test_ref_citation_tolerates_the_displayed_form(cited):
+    lb, _, _ = ref_log()
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=ref_evidence(ref_a=cited)[:1])
+    s = score(make_spec(), report, lb)
+    assert s.evidence_grounded == 1 and s.invalid_tool_call_ids == []
+
+
+def test_unknown_ref_is_fabricated():
+    lb, _, _ = ref_log()
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=ref_evidence(ref_a="c9"))
+    s = score(make_spec(), report, lb)
+    assert not s.passed and s.invalid_tool_call_ids == ["c9"]
+    assert {f.reason for f in s.fabricated_values} == {"unknown_tool_call_id"}
+
+
+def test_ref_in_a_log_without_refs_does_not_resolve():
+    lb, a, b = standard_log()  # an old log: no refs
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=ref_evidence())
+    s = score(make_spec(), report, lb)
+    assert not s.passed and s.invalid_tool_call_ids == ["c1", "c2"]
+
+
+def test_old_logs_score_the_same_by_real_id():
+    lb, a, b = standard_log()
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=good_evidence(a, b))
+    assert score(make_spec(), report, lb).passed
+
+
+def test_the_ref_line_is_not_part_of_the_result_text():
+    lb, _, _ = ref_log()
+    evidence = [Evidence(claim="made up", tool_call_id="c1", cited_values=["ref c1"])]
+    report = make_report([cause("checkout", Cat.LATENCY)], evidence=evidence)
+    s = score(make_spec(), report, lb)
+    assert s.evidence_grounded == 0
+    assert [f.reason for f in s.fabricated_values] == ["not_in_result"]

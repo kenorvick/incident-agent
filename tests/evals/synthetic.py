@@ -61,7 +61,9 @@ def make_spec(
     red_herrings: list[str] | None = None,
     injection: Injection | None = None,
     keywords: list[str] | None = None,
+    acceptable: dict[str, list[CauseCategory]] | None = None,
 ) -> ScenarioSpec:
+    """`acceptable` maps a cause's service to its `acceptable_categories`."""
     if healthy:
         gt_causes: list[Cause] = []
     else:
@@ -69,6 +71,7 @@ def make_spec(
             Cause(
                 service=svc,
                 category=cat,
+                acceptable_categories=(acceptable or {}).get(svc, []),
                 description=f"{svc} {cat.value}",
                 keywords=keywords if keywords is not None else ["slow", "latency"],
             )
@@ -125,7 +128,10 @@ def make_report(
 class LogBuilder:
     """Accumulates step-log records in the contract's format."""
 
-    def __init__(self, scenario_id: str = "checkout-latency", run_id: str = "r1") -> None:
+    def __init__(
+        self, scenario_id: str = "checkout-latency", run_id: str = "r1", *, refs: bool = False
+    ) -> None:
+        self.refs = refs  # write `ref` and the `[ref cN]` first line, as the harness now does
         self.step = 0
         self.cost = 0.0
         self.input_tokens = 0
@@ -161,6 +167,8 @@ class LogBuilder:
         self.input_tokens += extra_tokens[0]
         self.output_tokens += extra_tokens[1]
         secs = 1 + self.step
+        ref = f"c{self.tool_count}"
+        shown = f"[ref {ref}]\n{content}" if self.refs else content
         self.records.append(
             {
                 "ts": f"2026-10-19T21:30:{secs:02d}.000Z",
@@ -183,14 +191,15 @@ class LogBuilder:
                 "type": "tool_result",
                 "step": self.step,
                 "tool_call_id": call_id,
+                **({"ref": ref} if self.refs else {}),
                 "name": name,
                 "arguments": arguments,
                 "is_error": is_error,
-                "result_chars": len(content),
-                "approx_tokens": len(content) // 4,
+                "result_chars": len(shown),
+                "approx_tokens": len(shown) // 4,
                 "truncated_by_harness": False,
                 "latency_ms": 12.0,
-                "content": content,
+                "content": shown,
             }
         )
         return call_id
@@ -227,9 +236,12 @@ class LogBuilder:
         return path
 
 
-def standard_log(scenario_id: str = "checkout-latency") -> tuple[LogBuilder, str, str]:
-    """A log with two tool calls; returns (builder, overview_call_id, differences_call_id)."""
-    lb = LogBuilder(scenario_id)
+def standard_log(
+    scenario_id: str = "checkout-latency", *, refs: bool = False
+) -> tuple[LogBuilder, str, str]:
+    """A log with two tool calls (refs `c1`, `c2` when `refs`); returns (builder,
+    overview_call_id, differences_call_id)."""
+    lb = LogBuilder(scenario_id, refs=refs)
     a = lb.tool("get_service_overview", {"window": "10m"}, OVERVIEW)
     b = lb.tool("find_differences", {"selection": "duration_ms > 1000"}, DIFFERENCES)
     return lb, a, b

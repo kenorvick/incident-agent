@@ -87,6 +87,7 @@ class ModelCall(LogRecord):
 class ToolResult(LogRecord):
     step: int | None = None
     tool_call_id: str = ""
+    ref: str = ""  # short citable ref (`c3`); empty in logs written before refs existed
     name: str = ""
     arguments: Any = None
     is_error: bool = False
@@ -102,6 +103,14 @@ class ToolResult(LogRecord):
         if isinstance(value, str):
             return value
         return json.dumps(value, default=str, sort_keys=True)
+
+    @property
+    def result_text(self) -> str:
+        """`content` without the harness's `[ref cN]` line: what the tool itself returned."""
+        prefix = f"[ref {self.ref}]\n"
+        if self.ref and self.content.startswith(prefix):
+            return self.content[len(prefix) :]
+        return self.content
 
 
 class ContextEvent(LogRecord):
@@ -173,6 +182,15 @@ class StepLog:
         out: dict[str, list[ToolResult]] = {}
         for tr in self.tool_results:
             out.setdefault(tr.tool_call_id, []).append(tr)
+        return out
+
+    def tool_results_by_cited_id(self) -> dict[str, list[ToolResult]]:
+        """Tool results keyed by what an evidence item may cite: the real `tool_call_id`, or the
+        short `ref` (so logs written before refs existed resolve exactly as they always did)."""
+        out = self.tool_results_by_id()
+        for tr in self.tool_results:
+            if tr.ref and tr.ref not in out:
+                out[tr.ref] = [r for r in self.tool_results if r.ref == tr.ref]
         return out
 
     def wall_clock_ms(self) -> float | None:

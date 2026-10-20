@@ -1,7 +1,8 @@
 """Structured step log: one JSON object per line, flushed after every event.
 
 The event types and fields are a contract with the eval harness (`evals/logs.py` reads them).
-`tool_result.content` is the exact text the model saw, which the anti-fabrication check relies on.
+`tool_result.content` is the exact text the model saw, which the anti-fabrication check relies on;
+it starts with the `[ref cN]` line, and `tool_result.ref` is that `cN` (absent in older logs).
 """
 
 from __future__ import annotations
@@ -98,11 +99,13 @@ class StepLogger:
         is_error: bool,
         latency_ms: float,
         truncated_by_harness: bool = False,
+        ref: str | None = None,
     ) -> None:
         self._write(
             "tool_result",
             step=step,
             tool_call_id=tool_call_id,
+            ref=ref,
             name=name,
             arguments=arguments,
             is_error=is_error,

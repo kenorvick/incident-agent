@@ -64,8 +64,9 @@ async def test_log_has_every_event_with_the_contract_fields(tmp_path):
 
     assert tool["step"] == 1 and tool["tool_call_id"] == "t1" and tool["name"] == "describe_dataset"
     assert tool["arguments"] == {"a": 1} and tool["is_error"] is False
-    assert tool["content"] == "x" * 41  # the full text given to the model
-    assert tool["result_chars"] == 41 and tool["approx_tokens"] == approx_tokens("x" * 41) == 11
+    shown = "[ref c1]\n" + "x" * 41  # the full text given to the model, ref line included
+    assert tool["ref"] == "c1" and tool["content"] == shown
+    assert tool["result_chars"] == len(shown) and tool["approx_tokens"] == approx_tokens(shown)
     assert tool["truncated_by_harness"] is False and "latency_ms" in tool
 
     # submit_report is logged like any other tool, with the harness's reply as its content

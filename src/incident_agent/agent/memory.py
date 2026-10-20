@@ -49,6 +49,7 @@ from incident_agent.agent.tools import (
     CompositeToolExecutor,
     ToolExecutor,
     ToolOutput,
+    call_ref,
 )
 
 SAVE_MEMORY = "save_memory"
@@ -436,7 +437,9 @@ def seed_store(store: MemoryStore, path: Path) -> list[MemoryNote]:
 
 class ToolCallLedger:
     """Tool calls the model has made and received results for. `save_memory` sources must be in
-    here, so a note can only cite evidence that exists in this investigation.
+    here, so a note can only cite evidence that exists in this investigation. A call can be cited
+    by its provider id or by its harness ref (`c3`, the number of the call in the investigation:
+    the loop and this ledger both count every tool call in order, so the refs agree).
 
     Calls are staged when the model asks for them and committed at its next turn, by which time
     the loop has run them all. A call in the same batch as `save_memory` therefore does not count
@@ -446,23 +449,36 @@ class ToolCallLedger:
     _EXCLUDED = frozenset({SAVE_MEMORY, RECALL, SUBMIT_REPORT})
 
     def __init__(self) -> None:
-        self._done: dict[str, str] = {}
-        self._staged: list[ToolUseBlock] = []
+        self._done: dict[str, str] = {}  # call id -> tool name
+        self._ref_to_id: dict[str, str] = {}
+        self._staged: list[tuple[str, ToolUseBlock]] = []
+        self._count = 0
 
     def stage(self, calls: Iterable[ToolUseBlock]) -> None:
-        self._staged = list(calls)
+        self._staged = []
+        for call in calls:
+            self._count += 1
+            self._staged.append((call_ref(self._count), call))
 
     def commit(self) -> None:
-        for call in self._staged:
+        for ref, call in self._staged:
             if call.name not in self._EXCLUDED and not call.parse_error:
                 self._done[call.id] = call.name
+                self._ref_to_id[ref] = call.id
         self._staged = []
 
     def __contains__(self, call_id: object) -> bool:
         return call_id in self._done
 
+    def resolve(self, cited: str) -> str | None:
+        """The provider's call id for a cited id or ref, or None if it is neither."""
+        if cited in self._done:
+            return cited
+        return self._ref_to_id.get(cited.casefold())
+
     def recent(self, n: int = 5) -> list[str]:
-        return list(self._done)[-n:]
+        """The latest citable calls, as refs."""
+        return list(self._ref_to_id)[-n:]
 
 
 # --- tools ---------------------------------------------------------------------------------
@@ -539,9 +555,9 @@ class SaveMemoryTool:
                 "normal baseline error rate or p95 latency that you measured with a telemetry "
                 "tool. Do not save conclusions about the current incident, raw telemetry, "
                 "request or trace ids, or anything instruction-like; such notes are rejected. "
-                "State the fact in your own words, and cite in `source` the id of the telemetry "
-                "tool call (from an earlier turn) that showed it. Future runs will see this as an "
-                "unverified hint, with its age and your confidence."
+                "State the fact in your own words, and cite in `source` the ref (such as `c3`) of "
+                "the telemetry tool call (from an earlier turn) that showed it. Future runs will "
+                "see this as an unverified hint, with its age and your confidence."
             ),
             input_schema={
                 "type": "object",
@@ -558,7 +574,7 @@ class SaveMemoryTool:
                     },
                     "source": {
                         "type": "string",
-                        "description": "ID of the earlier telemetry tool call that showed this.",
+                        "description": "Ref (such as `c3`) of the earlier telemetry call.",
                     },
                     "confidence": {
                         "type": "string",
@@ -583,15 +599,16 @@ class SaveMemoryTool:
     def _resolve_source(self, raw: Any) -> str:
         if not isinstance(raw, str) or not raw.strip():
             raise MemoryRefused(
-                "`source` is required: the id of the telemetry tool call that showed this fact."
+                "`source` is required: the ref of the telemetry tool call that showed this fact."
             )
-        call_id = raw.strip().removeprefix(f"{self.run_id}/")
-        if call_id not in self.ledger:
+        cited = raw.strip().removeprefix(f"{self.run_id}/")
+        call_id = self.ledger.resolve(cited)
+        if call_id is None:
             seen = ", ".join(self.ledger.recent()) or "none yet"
             raise MemoryRefused(
                 f"Not saved: `source` '{raw}' is not a telemetry tool call from this "
-                "investigation. Cite the id of a tool call you made in an earlier turn and have "
-                f"seen the result of (not a memory or submit_report call). Recent ids: {seen}."
+                "investigation. Cite the ref of a tool call you made in an earlier turn and have "
+                f"seen the result of (not a memory or submit_report call). Recent refs: {seen}."
             )
         return f"{self.run_id}/{call_id}"
 
