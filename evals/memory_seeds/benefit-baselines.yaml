@@ -1,0 +1,99 @@
+# Seed notes for the memory BENEFIT eval: correct "normal baseline" notes for the services that
+# matter in `healthy-baseline` and `payment-failure-50pct`.
+#
+# Purpose: a prior, true note of what normal looks like should let the agent answer faster or avoid
+# a false alarm. Compare runs with this seed against the latest no-memory run of the same
+# scenarios (steps, tool calls, tokens, cost, pass rate, false alarms).
+#
+#   uv run incident-agent eval -s healthy-baseline -s payment-failure-50pct \
+#       --memory-seed evals/memory_seeds/benefit-baselines.yaml --runs 3
+#
+# Every number comes from `scripts/compute_baselines.py` (DuckDB backend, server spans only):
+# the whole capture of `healthy-baseline` and the pre-`fault_start` window of
+# `payment-failure-50pct`. Each note gives the range across those two healthy windows, because
+# the two captures differ in load and size (checkout has only 19 and 38 sampled server spans).
+# Error rate was 0 in both windows for every service listed. Latency drifts up with load inside a
+# healthy window: frontend p95 32.4 ms -> 42.6 ms (1.3x) and frontend-proxy 30.3 -> 46.1 ms (1.5x)
+# between the first and second half of `healthy-baseline`.
+#
+# Caveat for readers of the results: the numbers are derived from the same captures the agent
+# investigates, so the benefit measured here is an upper bound on what a baseline from an earlier,
+# separate capture would give.
+#
+# Notes are service scoped and written as plain statements (no imperatives) so they pass the
+# store's sanitizer. Age 3 days, 30 day TTL.
+notes:
+  - id: baseline-frontend
+    scope: service
+    scope_key: frontend
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods frontend server spans have a p50 duration of about 4 to 5 ms, a p95 of
+      about 23 to 37 ms and an error rate of 0%. The p95 rises with load, by about 30% between
+      the first and second half of one healthy window, without any regression.
+
+  - id: baseline-frontend-proxy
+    scope: service
+    scope_key: frontend-proxy
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods frontend-proxy server spans have a p50 duration of about 4.5 to 6 ms, a
+      p95 of about 24 to 38 ms and an error rate of 0%. Its p95 rises with load, by up to about
+      1.5x within one healthy window.
+
+  - id: baseline-checkout
+    scope: service
+    scope_key: checkout
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods checkout server spans have a p50 duration of about 17 to 28 ms, a p95 of
+      about 20 to 72 ms and an error rate of 0%. Checkout spans are few after sampling (tens per
+      window), so its p95 is noisy.
+
+  - id: baseline-payment
+    scope: service
+    scope_key: payment
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods payment server spans have a p50 duration of about 0.5 to 0.6 ms, a p95
+      under 1 ms and an error rate of 0%.
+
+  - id: baseline-cart
+    scope: service
+    scope_key: cart
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods cart server spans have a p50 duration of about 0.5 to 0.8 ms, a p95 of
+      about 2 to 4 ms and an error rate of 0%.
+
+  - id: baseline-product-catalog
+    scope: service
+    scope_key: product-catalog
+    confidence: high
+    source: seed:compute_baselines.py
+    reason: normal latency and error rate measured in healthy periods
+    age_days: 3
+    ttl_days: 30
+    content: >-
+      In healthy periods product-catalog server spans have a p50 duration of about 2 to 3 ms, a
+      p95 of about 13 to 20 ms and an error rate of 0%.

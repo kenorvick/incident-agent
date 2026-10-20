@@ -12,6 +12,13 @@ label only (`-` for runs scored before that field existed); `fab` is the number 
 runs with any fabricated value or unknown tool_call_id in the *submitted* report. Since the
 agent's `submit_report` verifies citations (production guardrail), `fab` measures what survives
 it; `runs with citation rejection` counts how many runs needed a correction.
+
+Runs that used memory add a `### Memory` section (see `scoring.MemoryScore` for the definitions):
+per scenario, how many runs recalled anything, mean recall calls, distinct notes returned, and
+`k/n` over the runs that recalled notes for `verified` (queried the recalled service afterwards);
+`k/n` over memory runs for `cited memory` (a recall result cited as evidence) and `followed stale`
+(wrong top cause that a recalled note pointed at); saves accepted. Nothing there affects pass
+rates, and with memory off the section is absent.
 """
 
 from __future__ import annotations
@@ -273,6 +280,56 @@ def _aggregate_table(run: EvalRun) -> str:
     return _table(["aggregate", "pass", "rate"], rows)
 
 
+def _memory_section(run: EvalRun) -> str | None:
+    """The `### Memory` section, or None when no scored run used memory."""
+    recs = [r for r in run.scored_records if r.score.memory is not None]
+    if not recs:
+        return None
+    rows = []
+    for sid in run.scenario_difficulty:
+        mem = [m for r in recs if r.scenario_id == sid and (m := r.score.memory) is not None]
+        if not mem:
+            continue
+        got = [m for m in mem if m.memories_returned]
+        checkable = [m for m in mem if m.verified_after_recall is not None]
+        notes = sorted({n for m in mem for n in m.memories_returned})
+        rows.append(
+            [
+                sid,
+                str(len(mem)),
+                _frac(len(got), len(mem)),
+                _num(fmean(m.recall_calls for m in mem)),
+                ", ".join(f"`{n}`" for n in notes) or "-",
+                _frac(sum(bool(m.verified_after_recall) for m in checkable), len(checkable)),
+                _frac(sum(m.cited_memory_as_evidence for m in mem), len(mem)),
+                _frac(sum(m.followed_stale_memory for m in mem), len(mem)),
+                f"{sum(m.saves_accepted for m in mem)} of {sum(m.save_calls for m in mem)}",
+            ]
+        )
+    header = [
+        "scenario", "memory runs", "got notes", "recalls/run", "notes returned", "verified",
+        "cited memory", "followed stale", "saves ok",
+    ]  # fmt: skip
+    lines = [
+        "### Memory",
+        "",
+        "Diagnostics from the step logs; they do not affect pass/fail. `verified`: after "
+        "recalling notes about a service the agent queried that service; `cited memory`: a "
+        "recall result was cited as evidence; `followed stale`: wrong top cause that a "
+        "recalled note pointed at.",
+        "",
+        _table(header, rows),
+    ]
+    flagged = [
+        f"- `{r.scenario_id}` run {r.attempt}: {'; '.join(r.score.memory.flags)}"
+        for r in recs
+        if r.score.memory is not None and r.score.memory.flags
+    ]
+    if flagged:
+        lines += ["", "Flagged:", "", *flagged]
+    return "\n".join(lines)
+
+
 def _variance_note(stats: list[ScenarioStats]) -> str:
     multi = [s for s in stats if s.scored > 1]
     if not multi:
@@ -369,6 +426,8 @@ def render_entry(
         lines += [f"- **Notes:** {note.strip()}"]
     lines += ["", "### Per scenario", "", _scenario_table(stats), "", "### Aggregate", ""]
     lines += [_aggregate_table(run), "", _variance_note(stats), ""]
+    if (memory_section := _memory_section(run)) is not None:
+        lines += [memory_section, ""]
     if run.not_completed:
         lines += ["Not completed: " + ", ".join(f"`{x}`" for x in run.not_completed) + ".", ""]
     lines += ["### Failures", "", _failures(run), ""]
