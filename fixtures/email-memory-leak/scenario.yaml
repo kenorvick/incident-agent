@@ -1,0 +1,42 @@
+id: email-memory-leak
+title: Email service leaks memory until it is killed
+difficulty: single
+alert: '[MED] Order confirmation emails are slow or missing, and POST /api/checkout p95 latency is elevated.
+  Order success rate is unchanged.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: email
+    category: resource_exhaustion
+    flag: emailMemoryLeak
+    description: The email service builds enormous confirmation bodies and keeps every delivery in memory.
+      Sends get slow and the container hits its 100 MB limit, is killed and restarts, so calls from checkout
+      fail or stall in cycles.
+    keywords:
+    - email
+    - memory leak
+    - out of memory
+    - oom
+    - confirmation email
+    - restart
+  red_herrings: []
+expected_evidence:
+- description: send_email spans in the email service slow from ~2 ms to hundreds of ms (peaks of seconds)
+    after onset.
+  field: name
+  value: send_email
+- description: checkout's calls to email fail intermittently (EOF, context deadline exceeded, connection
+    refused while the container restarts).
+  field: status_message
+capture:
+  demo_version: 3.1.0
+  flags:
+    emailMemoryLeak: 10000x
+  baseline_seconds: 90
+  fault_seconds: 420
+  fault_start: '2026-10-19T22:59:12.401572Z'
+  sample_rate: 2
+  span_count: 15010
+  captured_at: '2026-10-19T23:06:29.662661Z'
+notes: 'Observed: send_email p95 ~3 ms before, ~700 ms after; checkout-to-email client spans fail intermittently
+  (EOF, deadline exceeded, one connection refused).'

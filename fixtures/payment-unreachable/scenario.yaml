@@ -1,0 +1,40 @@
+id: payment-unreachable
+title: Checkout cannot reach the payment service
+difficulty: single
+alert: '[HIGH] Orders cannot be completed. Every checkout submission (POST /api/checkout) has failed for
+  the last 10 minutes. Browsing and cart operations work.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: checkout
+    category: dependency_failure
+    flag: paymentUnreachable
+    description: checkout dials a bad payment address (badAddress:50051) instead of the payment service,
+      so every Charge call fails to connect. The payment service itself receives no traffic and shows
+      no errors.
+    keywords:
+    - payment
+    - unreachable
+    - unavailable
+    - badAddress
+    - connection
+    - cannot connect
+    - dns
+  red_herrings: []
+expected_evidence:
+- description: checkout client spans to PaymentService/Charge all fail with a connect error.
+  field: service.name
+  value: checkout
+- description: payment spans almost vanish after onset, so payment looks "healthy".
+capture:
+  demo_version: 3.1.0
+  flags:
+    paymentUnreachable: 'on'
+  baseline_seconds: 90
+  fault_seconds: 240
+  fault_start: '2026-10-19T22:39:41.219725Z'
+  sample_rate: 1
+  span_count: 19165
+  captured_at: '2026-10-19T22:43:57.551689Z'
+notes: Telemetry blames checkout (the caller), not payment, so the correct service is checkout. Keywords
+  accept answers that describe the failure as "payment unreachable".

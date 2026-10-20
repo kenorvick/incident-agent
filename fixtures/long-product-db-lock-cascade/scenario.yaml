@@ -1,0 +1,49 @@
+id: long-product-db-lock-cascade
+title: Product database lock stalls many services
+difficulty: long
+alert: '[HIGH] Broad storefront degradation. p95 latency is up from milliseconds to tens of seconds on
+  product pages and recommendations, and checkout is intermittently slow, with a growing number of timeouts
+  and 5xx responses. Several services are alerting at once. Started around 10 minutes ago.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: product-catalog
+    category: latency
+    flag: productCatalogLockContention
+    description: product-catalog periodically takes an ACCESS EXCLUSIVE lock on its products table for
+      30 seconds, so its database queries block. Every caller of the catalog (frontend, recommendation,
+      checkout) inherits the stall; after 15 s the proxy gives up with 504.
+    keywords:
+    - product catalog
+    - product-catalog
+    - database
+    - lock
+    - lock contention
+    - postgres
+    - blocked queries
+  red_herrings: []
+expected_evidence:
+- description: product-catalog's database client spans take up to ~30 s after onset (~10 ms before).
+  field: name
+  value: astronomy-db
+- description: Latency shows up in frontend (GET /api/products/[productId]/index, GET /api/recommendations,
+    POST /api/checkout) and recommendation as downstream effects, while GET /, /api/data and /api/cart
+    stay fast.
+- description: Requests that wait over 15 s fail at the proxy with HTTP 504.
+  field: http.status_code
+  value: '504'
+capture:
+  demo_version: 3.1.0
+  flags:
+    productCatalogLockContention: 'on'
+  baseline_seconds: 180
+  fault_seconds: 600
+  fault_start: '2026-10-20T00:07:21.634538Z'
+  sample_rate: 2
+  span_count: 16393
+  captured_at: '2026-10-20T00:17:38.600366Z'
+notes: 'One root cause with a wide blast radius: the agent has to walk the dependency chain instead of
+  stopping at the loudest service (frontend). For Phase 7 context-management testing: many services, many
+  slow spans, large tool results. Longer window on purpose. Blocked callers lower overall throughput while
+  the lock is held. Observed: product pages p95 ~17 ms -> ~27 s, ~10% of load-generator requests end in
+  504.'

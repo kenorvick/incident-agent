@@ -1,0 +1,40 @@
+id: ad-manual-gc
+title: Ad service stalls in periodic full garbage collections
+difficulty: single
+alert: '[MED] Latency alert. GET /api/data (ads) latency jumped: p50 went from a few milliseconds to about
+  a second, with p99 reaching several seconds. Started about 10 minutes ago; no errors.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: ad
+    category: resource_exhaustion
+    flag: adManualGc
+    description: With the flag on, the ad service fills its heap and forces full garbage collections inside
+      GetAds (at most once every 10 seconds). Because every request queues behind the collections, GetAds
+      goes from about 1 ms to about 1 s at the median, with multi-second peaks.
+    keywords:
+    - ad
+    - ad service
+    - garbage collection
+    - gc
+    - heap
+    - memory pressure
+    - pauses
+  red_herrings: []
+expected_evidence:
+- description: Latency of ad GetAds server spans jumps from ~1 ms to ~1 s (p50), p99 several seconds.
+  field: name
+  value: oteldemo.AdService/GetAds
+capture:
+  demo_version: 3.1.0
+  flags:
+    adManualGc: 'on'
+  baseline_seconds: 90
+  fault_seconds: 240
+  fault_start: '2026-10-19T22:52:37.508562Z'
+  sample_rate: 2
+  span_count: 10052
+  captured_at: '2026-10-19T22:56:53.724001Z'
+notes: 'The garbage collection itself is not an attribute in any span. The agent has to infer it from
+  slow GetAds calls with nothing wrong downstream (no errors, no slow dependencies). Observed: ad p95
+  1.6 ms before, ~1.4 s after.'

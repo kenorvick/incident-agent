@@ -1,0 +1,51 @@
+id: hard-payment-errors-plus-ad-gc
+title: Two simultaneous unrelated faults (payment errors and ad latency)
+difficulty: hard
+alert: '[HIGH] Storefront SLO burn. Over the last 10 minutes POST /api/checkout error rate is elevated
+  and the latency of GET /api/data jumps to about a second. Both alerts fired within the same minute.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: payment
+    category: error_rate
+    flag: paymentFailure
+    description: The payment service fails about 25% of Charge requests with an "Invalid token" error.
+    keywords:
+    - payment
+    - charge
+    - invalid token
+    - payment failure
+  - service: ad
+    category: resource_exhaustion
+    flag: adManualGc
+    description: The ad service forces full garbage collections inside GetAds, making it about a second
+      slower per call.
+    keywords:
+    - ad
+    - ad service
+    - garbage collection
+    - gc
+    - heap
+    - memory pressure
+    - pauses
+  red_herrings: []
+expected_evidence:
+- description: payment spans fail about 25% of the time with the same exception message.
+  field: service.name
+  value: payment
+- description: ad GetAds spans slow from ~1 ms to ~1 s without errors.
+  field: name
+  value: oteldemo.AdService/GetAds
+capture:
+  demo_version: 3.1.0
+  flags:
+    paymentFailure: 25%
+    adManualGc: 'on'
+  baseline_seconds: 90
+  fault_seconds: 420
+  fault_start: '2026-10-19T23:30:57.316181Z'
+  sample_rate: 2
+  span_count: 16802
+  captured_at: '2026-10-19T23:38:13.834841Z'
+notes: Two independent causes in different parts of the system. A report that finds only one should be
+  scored as partially correct.

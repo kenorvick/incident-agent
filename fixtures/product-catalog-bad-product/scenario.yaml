@@ -1,0 +1,38 @@
+id: product-catalog-bad-product
+title: One product fails to load from the catalog
+difficulty: single
+alert: '[MED] Elevated 5xx on product pages. Some customers get an error page when opening a product detail
+  page while the homepage and most other products load fine. Started around 10 minutes ago.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: product-catalog
+    category: bad_data_config
+    flag: productCatalogFailure
+    description: product-catalog GetProduct fails with an internal error for exactly one product id (OLJCESPC7Z);
+      every other product is served normally.
+    keywords:
+    - product catalog
+    - OLJCESPC7Z
+    - specific product
+    - single product
+    - one product
+  red_herrings: []
+expected_evidence:
+- description: Every error span in product-catalog is for the same product id.
+  field: demo.product.id
+  value: OLJCESPC7Z
+- description: The error status message names the product catalog failure.
+  field: status_message
+  value: 'Error: Product Catalog Fail Feature Flag Enabled'
+capture:
+  demo_version: 3.1.0
+  flags:
+    productCatalogFailure: 'on'
+  baseline_seconds: 90
+  fault_seconds: 240
+  fault_start: '2026-10-19T22:33:13.430165Z'
+  sample_rate: 2
+  span_count: 10613
+  captured_at: '2026-10-19T22:37:29.753035Z'
+notes: The flag is a targeting rule (it is on only for product_id OLJCESPC7Z), not a plain switch.

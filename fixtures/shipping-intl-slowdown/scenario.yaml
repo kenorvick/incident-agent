@@ -1,0 +1,38 @@
+id: shipping-intl-slowdown
+title: Shipping calls for international addresses are delayed
+difficulty: single
+alert: '[MED] Checkout latency alert. p95 of POST /api/checkout rose from under a second to over 5 seconds.
+  Most orders still complete normally; a minority take much longer. No increase in errors.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: shipping
+    category: latency
+    flag: intlShippingSlowdown
+    description: The shipping service's ship-order handler sleeps 5 seconds for orders whose address is
+      outside the US, which delays those checkouts end to end.
+    keywords:
+    - shipping
+    - ship-order
+    - shipping delay
+    - international
+    - outside US
+    - 5 seconds
+  red_herrings: []
+expected_evidence:
+- description: shipping ship-order server spans split into a normal group (~2 ms) and a group at almost
+    exactly 5000 ms (about 1 in 9).
+  field: name
+  value: POST /ship-order
+capture:
+  demo_version: 3.1.0
+  flags:
+    intlShippingSlowdown: 5sec
+  baseline_seconds: 90
+  fault_seconds: 600
+  fault_start: '2026-10-19T23:18:27.390259Z'
+  sample_rate: 2
+  span_count: 21347
+  captured_at: '2026-10-19T23:28:43.833506Z'
+notes: Only the "Canada" entry of the load generator's customer list is non-US, so about 1 in 9 orders
+  is slow. Hence the long fault window.

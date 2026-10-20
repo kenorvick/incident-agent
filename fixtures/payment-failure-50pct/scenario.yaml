@@ -1,0 +1,40 @@
+id: payment-failure-50pct
+title: Payment service rejects half of all charges
+difficulty: single
+alert: '[HIGH] Checkout success rate is below SLO. Over the last 10 minutes about half of order submissions
+  (POST /api/checkout) have been returning errors and customers report "something went wrong" on the final
+  step. Browsing and add-to-cart look normal.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: payment
+    category: error_rate
+    flag: paymentFailure
+    description: The payment service fails roughly 50% of Charge requests with an "Invalid token" error,
+      which fails the order in checkout. Failing spans carry demo.user_context.loyalty_level=gold.
+    keywords:
+    - payment
+    - charge
+    - invalid token
+    - payment failure
+    - charge request
+  red_herrings: []
+expected_evidence:
+- description: Error rate of payment spans jumps from 0% to about 50% at fault onset.
+  field: service.name
+  value: payment
+- description: Failing payment spans report the same exception message.
+  field: exception.message
+  value: Payment request failed. Invalid token. demo.user_context.loyalty_level=gold
+capture:
+  demo_version: 3.1.0
+  flags:
+    paymentFailure: 50%
+  baseline_seconds: 120
+  fault_seconds: 300
+  fault_start: '2026-10-19T22:24:42.418178Z'
+  sample_rate: 2
+  span_count: 12527
+  captured_at: '2026-10-19T22:29:58.714125Z'
+notes: Failing payment spans are the only ones carrying loyalty_level=gold, so a careless attribute comparison
+  suggests gold-tier customers are the cause. It is a symptom.

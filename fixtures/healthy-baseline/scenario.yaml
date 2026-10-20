@@ -1,0 +1,22 @@
+id: healthy-baseline
+title: Healthy system, no fault injected
+difficulty: negative
+alert: '[LOW] Automated anomaly detection flagged a possible latency regression on the storefront in the
+  last 15 minutes. Please investigate and report whether action is needed.'
+ground_truth:
+  healthy: true
+  causes: []
+  red_herrings: []
+expected_evidence:
+- description: Error rates and latency percentiles are flat across the whole window for every service.
+capture:
+  demo_version: 3.1.0
+  flags: {}
+  baseline_seconds: 90
+  fault_seconds: 240
+  sample_rate: 2
+  span_count: 9421
+  captured_at: '2026-10-19T23:57:11.690774Z'
+notes: 'No fault. The correct verdict is no_significant_issue. The "fault" period is simply more normal
+  traffic, so fault_start is null. Observed: zero error spans in the whole capture; p95 drifts up ~1.4x
+  between first and second half as load ramps (not a regression).'

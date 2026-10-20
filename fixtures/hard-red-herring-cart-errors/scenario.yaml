@@ -1,0 +1,42 @@
+id: hard-red-herring-cart-errors
+title: Slow international shipping, with loud unrelated cart errors
+difficulty: hard
+alert: '[HIGH] Checkout latency alert. p95 of POST /api/checkout rose from under a second to over 5 seconds
+  for a minority of orders.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: shipping
+    category: latency
+    flag: intlShippingSlowdown
+    description: The shipping service's ship-order handler sleeps 5 seconds for non-US addresses.
+    keywords:
+    - shipping
+    - ship-order
+    - shipping delay
+    - international
+    - outside US
+    - 5 seconds
+  red_herrings:
+  - service: cart
+    description: 'cartFailure=25% makes a quarter of the EmptyCart calls fail in cart. It is the loudest
+      error signal in the data, but checkout ignores that error: it adds no latency and fails no order,
+      so it does not explain the alert.'
+expected_evidence:
+- description: shipping ship-order server spans split into a normal group (~2 ms) and a group at almost
+    exactly 5000 ms (about 1 in 9).
+  field: name
+  value: POST /ship-order
+capture:
+  demo_version: 3.1.0
+  flags:
+    intlShippingSlowdown: 5sec
+    cartFailure: 25%
+  baseline_seconds: 90
+  fault_seconds: 600
+  fault_start: '2026-10-19T23:40:26.912849Z'
+  sample_rate: 2
+  span_count: 22124
+  captured_at: '2026-10-19T23:50:43.618570Z'
+notes: Tests whether the agent chases the loudest anomaly (cart errors) instead of the one that matches
+  the alert's symptom (latency).

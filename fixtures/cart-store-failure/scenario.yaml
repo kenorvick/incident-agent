@@ -1,0 +1,43 @@
+id: cart-store-failure
+title: Cart cannot clear carts after checkout
+difficulty: single
+alert: '[MED] Customers report items still in their cart after completing a purchase, and a few checkout
+  requests are timing out. Error counts in the post-checkout part of the flow are elevated.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: cart
+    category: dependency_failure
+    flag: cartFailure
+    description: For 75% of EmptyCart calls the cart service uses a store at an unreachable address (badhost:1234),
+      so it fails with "Can't access cart storage". Checkout ignores that error, so most orders still
+      succeed but carts are not cleared; the failed connection attempts add latency, and a few checkouts
+      time out (HTTP 504).
+    keywords:
+    - cart
+    - EmptyCart
+    - cart storage
+    - cart store
+    - valkey
+    - redis
+    - badhost
+    - empty cart
+  red_herrings: []
+expected_evidence:
+- description: cart EmptyCart spans fail about 75% of the time; other cart operations do not.
+  field: name
+  value: POST /oteldemo.CartService/EmptyCart
+- description: The error message says the cart storage cannot be accessed.
+  field: status_message
+  value: Can't access cart storage
+capture:
+  demo_version: 3.1.0
+  flags:
+    cartFailure: 75%
+  baseline_seconds: 90
+  fault_seconds: 240
+  fault_start: '2026-10-19T22:46:09.260538Z'
+  sample_rate: 2
+  span_count: 9917
+  captured_at: '2026-10-19T22:50:25.647015Z'
+notes: Also used as the noisy red herring in hard-red-herring-cart-errors.

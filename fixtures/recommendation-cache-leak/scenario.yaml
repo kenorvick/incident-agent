@@ -1,0 +1,46 @@
+id: recommendation-cache-leak
+title: Recommendation latency climbs as an in-process cache grows without bound
+difficulty: single
+alert: '[MED] Latency alert. p95 of GET /api/recommendations is climbing steadily (tens of milliseconds
+  before, seconds and still rising now) and product pages with recommendations are getting slower. No
+  deploys in this window.'
+ground_truth:
+  healthy: false
+  causes:
+  - service: recommendation
+    category: resource_exhaustion
+    flag: recommendationCacheFailure
+    description: The recommendation service's product cache grows on every cache miss (it re-adds a quarter
+      of itself each time), so each call handles ever more product ids and gets slower until the process
+      runs out of memory.
+    keywords:
+    - recommendation
+    - cache
+    - memory leak
+    - unbounded
+    - growing
+    - product count
+  red_herrings: []
+expected_evidence:
+- description: Latency of recommendation get_product_list spans rises through the window.
+  field: name
+  value: get_product_list
+- description: demo.product.count on those spans grows far beyond the catalogue size.
+  field: demo.product.count
+- description: The cache feature flag attribute is set on the slow spans.
+  field: demo.feature_flag.recommendation_cache
+  value: 'true'
+- description: Latency of get_product_list reaches hundreds of ms, then resets when the service restarts.
+  field: duration_ms
+capture:
+  demo_version: 3.1.0
+  flags:
+    recommendationCacheFailure: 'on'
+  baseline_seconds: 90
+  fault_seconds: 420
+  fault_start: '2026-10-19T23:08:59.329392Z'
+  sample_rate: 2
+  span_count: 16446
+  captured_at: '2026-10-19T23:16:15.743470Z'
+notes: Slow-onset. The 500 MB container limit may OOM-kill and restart the service late in the window,
+  which shows up as errors and a latency reset; that is part of the fault.
